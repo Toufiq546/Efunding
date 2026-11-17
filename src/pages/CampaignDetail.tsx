@@ -4,6 +4,9 @@ import { useStore } from "../lib/store";
 import { MatchBadge, Progress, StatusBadge, TypeBadge, Empty, ErrorNote, RejectWithReason, Spinner } from "../components/ui";
 import { backersFor, daysLeft, effectiveStatus, formatDate, formatMoney, raisedFor } from "../lib/format";
 import { scoreMatch } from "../lib/matching";
+import { AccountsSection, BusinessSection, CheckedBadge, CommitmentsSection, PlanSection } from "../components/project/ProjectSections";
+
+type Tab = "overview" | "business" | "accounts" | "plan" | "commitments" | "qa";
 
 export default function CampaignDetail() {
   const { id } = useParams();
@@ -17,6 +20,7 @@ export default function CampaignDetail() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<Tab>("overview");
 
   if (store.loading) return <Spinner />;
 
@@ -30,6 +34,7 @@ export default function CampaignDetail() {
   }
 
   const biz = db.businesses.find((b) => b.userId === c.businessId);
+  const project = db.projects[c.id];
   const raised = raisedFor(db, c.id);
   const left = daysLeft(c.deadline);
   const pref = user?.role === "investor" ? db.investors.find((i) => i.userId === user.id) : undefined;
@@ -71,7 +76,7 @@ export default function CampaignDetail() {
 
   return (
     <div className="grid gap-8 lg:grid-cols-3">
-      <div className="space-y-6 lg:col-span-2">
+      <div className="min-w-0 space-y-6 lg:col-span-2">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <TypeBadge type={c.type} />
@@ -91,6 +96,24 @@ export default function CampaignDetail() {
           )}
         </div>
 
+        <nav className="-mx-1 flex gap-1 overflow-x-auto border-b border-slate-200 px-1" aria-label="Campaign sections">
+          {([
+            ["overview", "Overview"], ["business", "Business"], ["accounts", "Accounts"], ["plan", "Plan"],
+            ["commitments", "Commitments"], ["qa", `Q&A (${questions.length})`],
+          ] as [Tab, string][]).map(([t, label]) => (
+            <button key={t} type="button" onClick={() => setTab(t)} aria-current={tab === t ? "page" : undefined}
+              className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${tab === t ? "border-brand-600 text-brand-700" : "border-transparent text-slate-600 hover:text-slate-900"}`}>
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        {tab === "overview" && (<>
+        {project && project.highlights.length > 0 && (
+          <ul className="flex flex-wrap gap-2">
+            {project.highlights.map((h, i) => <li key={i} className="badge bg-brand-50 px-3 py-1 text-brand-900">{h}</li>)}
+          </ul>
+        )}
         {match && (
           <div className="card grid gap-4 sm:grid-cols-2">
             <div>
@@ -109,8 +132,15 @@ export default function CampaignDetail() {
         <section className="card space-y-3">
           <h2 className="text-lg font-bold">The pitch</h2>
           <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{c.pitch}</p>
-          <h3 className="pt-2 font-semibold">Use of funds</h3>
-          <p className="whitespace-pre-line text-sm text-slate-700">{c.useOfFunds}</p>
+          {!project?.fundItems.length && c.useOfFunds && (<>
+            <h3 className="pt-2 font-semibold">Use of funds</h3>
+            <p className="whitespace-pre-line text-sm text-slate-700">{c.useOfFunds}</p>
+          </>)}
+          <div className="flex flex-wrap gap-2 pt-2">
+            {(["business", "accounts", "plan", "commitments"] as Tab[]).map((t) => (
+              <button key={t} type="button" className="btn-secondary capitalize" onClick={() => setTab(t)}>{t === "accounts" ? "See the accounts" : `Read the ${t}`} →</button>
+            ))}
+          </div>
         </section>
 
         <section className="card space-y-3">
@@ -138,8 +168,23 @@ export default function CampaignDetail() {
             </div>
           )}
         </section>
+        </>)}
 
-        <section className="card space-y-4">
+        {tab === "business" && <section className="card"><BusinessSection project={project} /></section>}
+        {tab === "accounts" && (
+          <section className="card">
+            <AccountsSection campaign={c} financials={db.financials[c.id]} summary={db.financialSummary[c.id]} documents={db.documents.filter((d) => d.campaignId === c.id)} />
+          </section>
+        )}
+        {tab === "plan" && <section className="card"><PlanSection campaign={c} project={project} /></section>}
+        {tab === "commitments" && (
+          <section className="card space-y-4">
+            <h2 className="text-lg font-bold">Our commitments to you</h2>
+            <CommitmentsSection project={project} businessName={biz?.companyName} />
+          </section>
+        )}
+
+        {tab === "qa" && <section className="card space-y-4">
           <h2 className="text-lg font-bold">Questions & answers ({questions.length})</h2>
           {user?.role === "investor" && status === "live" && (
             <form onSubmit={submitQuestion} className="flex gap-2">
@@ -175,10 +220,10 @@ export default function CampaignDetail() {
               );
             })}
           </ul>
-        </section>
+        </section>}
       </div>
 
-      <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
+      <aside className="min-w-0 space-y-4 lg:sticky lg:top-20 lg:self-start">
         <div className="card space-y-4">
           <div>
             <p className="text-3xl font-bold">{formatMoney(raised)}</p>
@@ -203,7 +248,10 @@ export default function CampaignDetail() {
               )}
               <label className="flex items-start gap-2 text-xs text-slate-600">
                 <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" required />
-                I understand this is a non-binding pledge and that investing in private businesses carries risk, including losing all my money.
+                <span>
+                  I have read the business's <button type="button" className="font-semibold text-brand-700 underline" onClick={() => setTab("commitments")}>commitments</button>.
+                  I understand this is a non-binding pledge and that investing in private businesses carries risk, including losing all my money.
+                </span>
               </label>
               <button className="btn-primary w-full" disabled={!ack || busy}>{busy ? "Saving…" : "Pledge"}</button>
             </form>
@@ -214,7 +262,7 @@ export default function CampaignDetail() {
             <p className="text-sm text-slate-600">You have pledged <b>{formatMoney(myPledges.reduce((s, p) => s + p.amount, 0))}</b> to this campaign.</p>
           )}
           {isOwner && (c.status === "draft" || c.status === "rejected") && (
-            <Link to={`/campaigns/${c.id}/edit`} className="btn-secondary w-full">Edit campaign</Link>
+            <Link to={`/campaigns/${c.id}/build`} className="btn-secondary w-full">Edit project page</Link>
           )}
           {isAdmin && c.status === "pending" && (
             <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
@@ -231,6 +279,7 @@ export default function CampaignDetail() {
               {biz.verification === "verified" && <span className="badge bg-green-100 text-green-800">✓ Verified</span>}
             </div>
             <p className="text-slate-600">{biz.description}</p>
+            {db.financialSummary[c.id] && <CheckedBadge checked={db.financialSummary[c.id].checked} />}
             <dl className="grid grid-cols-2 gap-2 text-xs">
               <div><dt className="text-slate-500">Location</dt><dd>{biz.location}</dd></div>
               <div><dt className="text-slate-500">Founded</dt><dd>{biz.foundedYear}</dd></div>

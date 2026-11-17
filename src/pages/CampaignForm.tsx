@@ -44,17 +44,17 @@ export default function CampaignForm() {
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const verified = biz?.verification === "verified";
 
-  const submit = (submitForReview: boolean) => async (e?: FormEvent) => {
+  // Both buttons save a draft; "continue" also checks the deal terms and opens the project-page builder.
+  const submit = (toBuilder: boolean) => async (e?: FormEvent) => {
     e?.preventDefault();
     const goal = Number(f.goal), minInvestment = Number(f.minInvestment);
     if (!f.title.trim() || !f.summary.trim()) return setErr("Title and summary are required.");
     if (!(goal > 0) || !(minInvestment > 0)) return setErr("Goal and minimum investment must be positive numbers.");
     if (minInvestment > goal) return setErr("Minimum investment cannot exceed the goal.");
     if (f.deadline <= new Date().toISOString().slice(0, 10)) return setErr("The deadline must be in the future.");
-    if (submitForReview && !verified) return setErr("Your business must be verified before you can submit a campaign.");
-    if (f.type === "equity" && submitForReview && !(Number(f.equityPercent) > 0 && Number(f.equityPercent) <= 100)) return setErr("Enter the equity % offered (1–100).");
-    if (f.type === "debt" && submitForReview && !(Number(f.interestRate) >= 0 && Number(f.tenorMonths) > 0)) return setErr("Enter the interest rate and tenor.");
-    if (f.type === "reward" && submitForReview && rewards.some((r) => !r.title.trim() || !(r.amount > 0))) return setErr("Every reward tier needs a title and an amount.");
+    if (f.type === "equity" && toBuilder && !(Number(f.equityPercent) > 0 && Number(f.equityPercent) <= 100)) return setErr("Enter the equity % offered (1–100).");
+    if (f.type === "debt" && toBuilder && !(Number(f.interestRate) >= 0 && Number(f.tenorMonths) > 0)) return setErr("Enter the interest rate and tenor.");
+    if (f.type === "reward" && toBuilder && rewards.some((r) => !r.title.trim() || !(r.amount > 0))) return setErr("Every reward tier needs a title and an amount.");
 
     const terms =
       f.type === "equity" ? { equityPercent: Number(f.equityPercent) || undefined, valuation: Number(f.valuation) || undefined }
@@ -66,10 +66,10 @@ export default function CampaignForm() {
     const res = await saveCampaign({
       id: existing?.id, title: f.title.trim(), summary: f.summary.trim(), pitch: f.pitch, useOfFunds: f.useOfFunds,
       type: f.type, sector: f.sector, location: f.location, risk: f.risk, goal, minInvestment, deadline: f.deadline, terms,
-    }, submitForReview);
+    }, false);
     setBusy(false);
     if (res.error) return setErr(res.error);
-    nav(submitForReview ? "/dashboard" : `/campaigns/${res.id}`);
+    nav(toBuilder ? `/campaigns/${res.id}/build` : "/dashboard");
   };
 
   return (
@@ -79,7 +79,7 @@ export default function CampaignForm() {
         <h1 className="text-3xl font-bold">{existing ? "Edit campaign" : "New campaign"}</h1>
         {!verified && (
           <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-            You can save a draft now. Submitting for review needs a verified business profile.
+            You can prepare your campaign now. Submitting it for review needs a verified business profile.
           </p>
         )}
         {existing?.rejectionReason && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">Admin feedback: {existing.rejectionReason}</p>}
@@ -152,7 +152,7 @@ export default function CampaignForm() {
 
       <div className="flex flex-wrap justify-end gap-3">
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => submit(false)()}>Save draft</button>
-        <button className="btn-primary" disabled={!verified || busy}>Submit for admin review</button>
+        <button className="btn-primary" disabled={busy}>Save and build project page →</button>
       </div>
     </form>
   );

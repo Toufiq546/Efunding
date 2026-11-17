@@ -1,9 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { PostgrestError, Session } from "@supabase/supabase-js";
 import { isConfigured, supabase } from "./supabase";
+import { DEFAULT_MIME_ERROR, docPath, validateDocument } from "./documents";
 import { DEFAULT_SETTINGS } from "./types";
 import type {
-  BusinessProfile, Campaign, DB, InvestorProfile, PlatformSettings, Pledge, Question, Role, User,
+  BusinessProfile, Campaign, CampaignDocument, DB, DocKind, Financials, FinancialSummary, InvestorProfile, PlatformSettings,
+  Pledge, Project, Question, Reporting, Role, User,
 } from "./types";
 
 /**
@@ -33,8 +35,18 @@ export interface Store {
   cancelPledge(id: string): Result;
   ask(campaignId: string, text: string): Result;
   answer(questionId: string, text: string): Result;
+  /* Project page (business only, while the campaign is a draft or rejected). */
+  saveProject(p: Project): Result;
+  saveFinancials(f: Financials): Result;
+  uploadDocument(campaignId: string, file: File, kind: DocKind, title: string): Result;
+  deleteDocument(doc: CampaignDocument): Result;
+  /** A short-lived link to view the file. */
+  openDocument(doc: CampaignDocument): Promise<{ url?: string; error: string | null }>;
+
   /* Admin control panel (every call is re-checked and logged by the database). */
-  updateSettings(s: PlatformSettings): Result;
+  updateSettings(s: Pick<PlatformSettings, "sectors" | "locations" | "announcement">): Result;
+  updateProjectSettings(commitments: string[], minReporting: Reporting, minAccountYears: number): Result;
+  checkFinancials(campaignId: string, checked: boolean, note?: string): Result;
   setRole(userId: string, role: Role): Result;
   closeCampaign(id: string, reason: string): Result;
   adminCancelPledge(id: string, reason: string): Result;
@@ -44,7 +56,7 @@ export interface Store {
 
 const EMPTY: DB = {
   profiles: [], roles: [], stats: {}, businesses: [], investors: [], campaigns: [], pledges: [], questions: [],
-  settings: DEFAULT_SETTINGS, audit: [],
+  settings: DEFAULT_SETTINGS, audit: [], projects: {}, financials: {}, financialSummary: {}, documents: [],
 };
 
 export const StoreContext = createContext<Store | null>(null);
@@ -79,6 +91,32 @@ const toPledge = (r: Row): Pledge => ({
 const toQuestion = (r: Row): Question => ({
   id: r.id, campaignId: r.campaign_id, investorId: r.investor_id, askerName: r.asker_name || "Investor",
   text: r.body, createdAt: r.created_at, answer: r.answer ? { text: r.answer, at: r.answered_at } : undefined,
+});
+
+const toProject = (r: Row): Project => ({
+  campaignId: r.campaign_id, story: r.story ?? "", products: r.products ?? "", highlights: r.highlights ?? [], team: r.team ?? [],
+  fundItems: r.fund_items ?? [], milestones: r.milestones ?? [], risks: r.risks ?? [],
+  returnPlan: {
+    schedule: r.return_plan?.schedule, dividendPolicy: r.return_plan?.dividend_policy,
+    exitPlan: r.return_plan?.exit_plan, delivery: r.return_plan?.delivery,
+  },
+  reporting: r.reporting, customCommitments: r.custom_commitments ?? [], contactName: r.contact_name ?? "", contactRole: r.contact_role ?? "",
+  declarationName: r.declaration_name ?? "", declaredAt: r.declared_at ?? undefined, acceptedCommitments: r.accepted_commitments ?? [],
+});
+
+const toFinancials = (r: Row): Financials => ({
+  campaignId: r.campaign_id, history: r.history ?? [], projections: r.projections ?? [], notes: r.notes ?? "",
+  checked: r.checked, checkedAt: r.checked_at ?? undefined, checkNote: r.check_note ?? undefined,
+});
+
+const toSummary = (r: Row): FinancialSummary => ({
+  campaignId: r.campaign_id, yearsReported: r.years_reported, checked: r.checked, latestYear: r.latest_year ?? undefined,
+  revenueGrowthPct: r.revenue_growth_pct == null ? null : Number(r.revenue_growth_pct),
+  profitMarginPct: r.profit_margin_pct == null ? null : Number(r.profit_margin_pct),
+});
+
+const toDocument = (r: Row): CampaignDocument => ({
+  id: r.id, campaignId: r.campaign_id, kind: r.kind, title: r.title, path: r.path, sizeBytes: r.size_bytes, mime: r.mime, createdAt: r.created_at,
 });
 
 const toInvestor = (r: Row): InvestorProfile => ({
@@ -138,7 +176,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     if (!isConfigured) return;
-    const [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit] = await Promise.all([
+    const [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents] = await Promise.all([
       supabase.from("campaigns").select("*").order("created_at", { ascending: false }),
       supabase.from("campaign_stats").select("*"),
       supabase.from("business_public").select("*"),
@@ -151,8 +189,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase.from("platform_settings").select("*").maybeSingle(),
       // Only admins can read the log (RLS returns nothing for everyone else).
       uid ? supabase.from("admin_audit").select("*").order("created_at", { ascending: false }).limit(300) : null,
+      supabase.from("campaign_projects").select("*"),
+      // Full accounts and documents need a login (RLS); visitors get the public summary instead.
+      uid ? supabase.from("campaign_financials").select("*") : null,
+      supabase.from("campaign_financial_summary").select("*"),
+      uid ? supabase.from("campaign_documents").select("*").order("created_at") : null,
     ]);
-    const firstError = [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit]
+    const firstError = [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents]
       .find((r) => r?.error)?.error;
     if (firstError) console.error("Load failed:", firstError.message);
 
@@ -171,8 +214,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       profiles: (profiles?.data ?? []).map((r) => ({ id: r.id, name: r.full_name, email: r.email, createdAt: r.created_at })),
       roles: (roles?.data ?? []).map((r) => ({ userId: r.user_id, role: r.role })),
       settings: settings.data
-        ? { sectors: settings.data.sectors, locations: settings.data.locations, announcement: settings.data.announcement ?? "" }
+        ? {
+            sectors: settings.data.sectors, locations: settings.data.locations, announcement: settings.data.announcement ?? "",
+            commitmentOptions: settings.data.commitment_options ?? DEFAULT_SETTINGS.commitmentOptions,
+            minReporting: settings.data.min_reporting ?? DEFAULT_SETTINGS.minReporting,
+            minAccountYears: settings.data.min_account_years ?? DEFAULT_SETTINGS.minAccountYears,
+          }
         : DEFAULT_SETTINGS,
+      projects: Object.fromEntries((projects.data ?? []).map((r) => [r.campaign_id, toProject(r)])),
+      financials: Object.fromEntries((financials?.data ?? []).map((r) => [r.campaign_id, toFinancials(r)])),
+      financialSummary: Object.fromEntries((summary.data ?? []).map((r) => [r.campaign_id, toSummary(r)])),
+      documents: (documents?.data ?? []).map(toDocument),
       audit: (audit?.data ?? []).map((r) => ({
         id: String(r.id), adminId: r.admin_id, action: r.action, targetType: r.target_type,
         targetId: r.target_id, detail: r.detail, createdAt: r.created_at,
@@ -300,6 +352,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     answer(questionId, text) {
       return run(() => supabase.rpc("answer_question", { _question_id: questionId, _answer: text.trim() }));
+    },
+
+    saveProject(p) {
+      return run(() => supabase.from("campaign_projects").upsert({
+        campaign_id: p.campaignId, story: p.story, products: p.products, highlights: p.highlights, team: p.team,
+        fund_items: p.fundItems, milestones: p.milestones, risks: p.risks,
+        return_plan: {
+          schedule: p.returnPlan.schedule, dividend_policy: p.returnPlan.dividendPolicy,
+          exit_plan: p.returnPlan.exitPlan, delivery: p.returnPlan.delivery,
+        },
+        reporting: p.reporting, custom_commitments: p.customCommitments, contact_name: p.contactName.trim(),
+        contact_role: p.contactRole.trim(), declaration_name: p.declarationName.trim(),
+      }));
+    },
+
+    saveFinancials(f) {
+      return run(() => supabase.from("campaign_financials").upsert({
+        campaign_id: f.campaignId, history: f.history, projections: f.projections, notes: f.notes,
+      }));
+    },
+
+    async uploadDocument(campaignId, file, kind, title) {
+      const invalid = validateDocument(file, title);
+      if (invalid) return invalid;
+      const path = docPath(campaignId, file.name);
+      try {
+        const up = await supabase.storage.from("campaign-docs").upload(path, file, { contentType: file.type });
+        if (up.error) return /mime|type/i.test(up.error.message) ? DEFAULT_MIME_ERROR : message(up.error);
+        const row = await supabase.from("campaign_documents").insert({
+          campaign_id: campaignId, kind, title: title.trim(), path, size_bytes: file.size, mime: file.type,
+        });
+        if (row.error) {
+          await supabase.storage.from("campaign-docs").remove([path]);
+          return message(row.error);
+        }
+        await reload();
+        return null;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+
+    async deleteDocument(doc) {
+      const error = await run(() => supabase.from("campaign_documents").delete().eq("id", doc.id));
+      if (!error) await supabase.storage.from("campaign-docs").remove([doc.path]);
+      return error;
+    },
+
+    async openDocument(doc) {
+      const { data, error } = await supabase.storage.from("campaign-docs").createSignedUrl(doc.path, 300);
+      return error ? { error: message(error) } : { url: data.signedUrl, error: null };
+    },
+
+    updateProjectSettings(commitments, minReporting, minAccountYears) {
+      return run(() => supabase.rpc("admin_update_project_settings", { _commitments: commitments, _min_reporting: minReporting, _min_account_years: minAccountYears }));
+    },
+
+    checkFinancials(campaignId, checked, note) {
+      return run(() => supabase.rpc("admin_check_financials", { _campaign_id: campaignId, _checked: checked, _note: note ?? null }));
     },
 
     updateSettings(s) {

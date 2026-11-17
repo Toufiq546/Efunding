@@ -247,7 +247,7 @@ function BusinessDashboard() {
                     <td>{formatDate(c.deadline)}</td>
                     <td><StatusBadge status={effectiveStatus(c)} /></td>
                     <td className="pr-3 text-right">
-                      {(c.status === "draft" || c.status === "rejected") && <Link to={`/campaigns/${c.id}/edit`} className="text-xs text-brand-700 hover:underline">Edit</Link>}
+                      {(c.status === "draft" || c.status === "rejected") && <Link to={`/campaigns/${c.id}/build`} className="text-xs text-brand-700 hover:underline">Edit page</Link>}
                     </td>
                   </tr>
                 ))}

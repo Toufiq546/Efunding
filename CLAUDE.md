@@ -30,6 +30,11 @@ The local backend is throwaway; `npm run local:db` resets it.
   data and mirrors the database rules; keep it in step when an action or rule changes. `src/lib/mode.ts` has `isDemo`.
 - The embedded page refuses `alert`/`confirm`/`prompt`: use `ConfirmButton` / `RejectWithReason` from `ui.tsx` instead.
 
+- **Project pages** (`campaign_projects`, `campaign_financials`, `campaign_documents` + storage bucket `campaign-docs`):
+  built in `src/pages/ProjectBuilder.tsx` (steps Business → Accounts → Plan → Commitments → Review), shown on the
+  campaign page via `src/components/project/ProjectSections.tsx`. `src/lib/project.ts` `submitProblems()` mirrors the
+  database's `campaign_submit_problems()`: change both together. Full accounts and documents are for logged-in users;
+  visitors get `campaign_financial_summary`.
 - `src/lib/store.tsx`: the only place that talks to Supabase. Pages call its named actions, which return an error message or null.
 - `src/lib/matching.ts`: investor ↔ campaign match score (tests in `matching.test.ts`).
 - `src/pages/*`: routes. `src/components/ui.tsx`: shared UI pieces.

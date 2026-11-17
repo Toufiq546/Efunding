@@ -98,6 +98,36 @@ select pg_temp.check((select verification from public.businesses where user_id =
 -- Campaigns
 select pg_temp.expect_fail(:B1, $$update public.campaigns set status = 'live'$$, 'Only an admin');
 select pg_temp.expect_fail(:B1, $$update public.campaigns set status = 'pending', equity_percent = null$$, 'equity percentage');
+
+-- Project page while the campaign is a draft
+select pg_temp.expect_fail(:B1, $$update public.campaigns set status = 'pending'$$, 'Fill in the project page');
+select pg_temp.act_as(:B1);
+insert into public.campaign_projects (campaign_id, story, team, fund_items, milestones, risks, return_plan, contact_name, declaration_name, accepted_commitments, declared_at)
+select id, repeat('We make useful things. ', 4), '[{"name":"Biz One","role":"CEO","bio":""}]',
+  '[{"item":"Machines","amount":60000},{"item":"Stock","amount":40000}]', '[{"when":"Month 3","what":"Machines installed"}]',
+  '[{"risk":"Supplier delay","mitigation":"Two suppliers"}]', '{"dividend_policy":"20% of profit each year"}',
+  'Biz One', 'Biz One', '{forged}', '2000-01-01'
+from public.campaigns;
+insert into public.campaign_financials (campaign_id, history, checked)
+select id, '[{"year":2025,"revenue":500000,"costs":400000,"assets":300000,"liabilities":100000}]', true from public.campaigns;
+insert into storage.objects (bucket_id, name) select 'campaign-docs', id || '/accounts.pdf' from public.campaigns;
+insert into public.campaign_documents (campaign_id, kind, title, path, size_bytes, mime)
+select id, 'accounts', 'Accounts 2025', id || '/accounts.pdf', 1000, 'application/pdf' from public.campaigns;
+reset role;
+select pg_temp.check((select declared_at > now() - interval '1 minute'
+  and accepted_commitments = (select commitment_options from public.platform_settings) from public.campaign_projects),
+  'declaration time and accepted commitments are set by the server');
+select pg_temp.check((select not checked from public.campaign_financials), 'a business cannot mark its own accounts as checked');
+select id as cid from public.campaigns \gset
+select pg_temp.expect_fail(:B2, format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'campaign-docs', :'cid' || '/x.pdf'), 'row-level security');
+select pg_temp.expect_fail(:B2, $$insert into storage.objects (bucket_id, name) values ('campaign-docs', 'not-a-uuid/x.pdf')$$, 'row-level security');
+select pg_temp.expect_fail(:B2, $$update public.campaign_projects set story = 'hijacked'$$, 'NO ROWS');
+select pg_temp.expect_fail(:I1, $$select public.campaign_submit_problems(id, goal, type) from public.campaigns$$, 'NO ROWS');
+select pg_temp.expect_fail(:B1, $$update public.campaigns set status = 'pending'$$, 'at least 2 years');
+select pg_temp.act_as(:B1);
+update public.campaign_financials set history = history || '[{"year":2024,"revenue":400000,"costs":350000,"assets":250000,"liabilities":100000}]';
+select pg_temp.check((select cardinality(public.campaign_submit_problems(id, goal, type)) = 0 from public.campaigns), 'complete project page has no problems');
+reset role;
 select pg_temp.act_as(:B1);
 update public.campaigns set status = 'pending';
 reset role;
@@ -118,6 +148,21 @@ select pg_temp.check((select count(*) from public.campaigns where status = 'live
 select pg_temp.check((select count(*) from public.business_public) = 1, 'verified business appears in public view');
 select pg_temp.expect_fail(null, $$select tin from public.business_public$$, 'column "tin" does not exist');
 reset role;
+
+-- Project page once live
+select pg_temp.act_as(null);
+select pg_temp.check((select count(*) from public.campaign_projects) = 1, 'anon reads the project page of a live campaign');
+select pg_temp.check((select count(*) from public.campaign_financials) = 0 and (select count(*) from public.campaign_documents) = 0,
+  'anon cannot read full accounts or documents');
+select pg_temp.check((select years_reported = 2 and revenue_growth_pct = 25.0 and profit_margin_pct = 20.0 from public.campaign_financial_summary),
+  'anon sees the accounts summary');
+reset role;
+select pg_temp.act_as(:I1);
+select pg_temp.check((select count(*) from public.campaign_financials) = 1 and (select count(*) from public.campaign_documents) = 1
+  and (select count(*) from storage.objects) = 1, 'logged-in investor reads accounts and documents of a live campaign');
+reset role;
+select pg_temp.expect_fail(:B1, $$update public.campaign_projects set story = 'changed after approval'$$, 'NO ROWS');
+select pg_temp.expect_fail(:B1, $$delete from storage.objects$$, 'NO ROWS');
 select pg_temp.expect_fail(:B1, $$update public.campaigns set goal = 1$$, 'NO ROWS');
 
 -- Pledges
@@ -191,7 +236,14 @@ select public.admin_cancel_pledge((select id from public.pledges where status = 
 select public.admin_delete_question((select id from public.questions limit 1), 'Spam');
 select public.admin_close_campaign((select id from public.campaigns where status = 'live' limit 1), 'Business asked to stop');
 select pg_temp.check((select count(*) from public.admin_audit) = 7, 'every admin action is in the activity log');
+select pg_temp.expect_fail(:B1, $$select public.admin_check_financials((select id from public.campaigns limit 1), true, 'ok')$$, 'Admins only');
+select pg_temp.expect_fail(:A, $$select public.admin_update_project_settings('{}', 'quarterly', 2)$$, 'at least one');
+select public.admin_check_financials((select id from public.campaigns limit 1), true, 'Matches the audited statements');
+select public.admin_update_project_settings(array['Report every month'], 'monthly', 3);
+select pg_temp.check((select count(*) from public.admin_audit) = 9, 'checking accounts and project settings are logged');
 reset role;
+select pg_temp.check((select checked and checked_by = :A from public.campaign_financials), 'admin marked the accounts as checked');
+select pg_temp.check((select min_account_years = 3 and min_reporting = 'monthly' from public.platform_settings), 'admin changed project settings');
 select pg_temp.check((select role from public.user_roles where user_id = :I2) = 'business', 'admin changed a role');
 select pg_temp.check((select count(*) from public.questions) = 0, 'admin removed a question');
 select pg_temp.check((select status from public.campaigns limit 1) = 'closed', 'admin closed a live campaign');

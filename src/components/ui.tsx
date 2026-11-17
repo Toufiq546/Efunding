@@ -146,13 +146,16 @@ export function ConfirmButton({
  * Replaces window.prompt, which the embedded preview blocks.
  */
 export function ReasonAction({
-  label, submitLabel, onSubmit, disabled, className = "", tone = "danger", reasonLabel = "Reason (shown to the business)",
+  label, submitLabel, onSubmit, disabled, className = "", tone = "danger", reasonLabel = "Reason (shown to the business)", sections,
 }: {
   label: string; submitLabel: string; onSubmit: (reason: string) => void; disabled?: boolean; className?: string;
   tone?: "danger" | "secondary"; reasonLabel?: string;
+  /** Optional list of sections the reason is about; the chosen one is prefixed, e.g. "[Accounts] …". */
+  sections?: string[];
 }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [section, setSection] = useState(sections?.[0] ?? "");
   const [fieldId] = useState(() => `reason-${Math.random().toString(36).slice(2, 8)}`);
   const btn = tone === "danger" ? "btn-danger" : "btn-secondary";
   if (!open) {
@@ -161,8 +164,22 @@ export function ReasonAction({
   return (
     <form
       className="flex w-full flex-col gap-2 sm:w-80"
-      onSubmit={(e) => { e.preventDefault(); if (reason.trim()) { onSubmit(reason.trim()); setOpen(false); setReason(""); } }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!reason.trim()) return;
+        onSubmit(section && section !== "General" ? `[${section}] ${reason.trim()}` : reason.trim());
+        setOpen(false);
+        setReason("");
+      }}
     >
+      {sections && (
+        <>
+          <label className="label" htmlFor={`${fieldId}-section`}>Section that needs changes</label>
+          <select id={`${fieldId}-section`} className="input" value={section} onChange={(e) => setSection(e.target.value)}>
+            {sections.map((s) => <option key={s}>{s}</option>)}
+          </select>
+        </>
+      )}
       <label className="label" htmlFor={fieldId}>{reasonLabel}</label>
       <textarea id={fieldId} className="input min-h-16" autoFocus required value={reason} onChange={(e) => setReason(e.target.value)} />
       <div className="flex gap-2">

@@ -43,8 +43,8 @@ Sign-ups are confirmed instantly in this mode.
 
 | Role | Can do |
 |---|---|
-| Business | Sign up → submit company profile (trade licence, TIN) for verification → create campaigns (equity %/valuation, interest/tenor, or reward tiers) → submit for review → answer investor questions, see pledges |
-| Investor | Set preferences → see campaigns ranked by match score → ask questions → pledge (non-binding) → cancel pledges while the campaign is open |
+| Business | Sign up → submit company profile (trade licence, TIN) for verification → create a campaign (equity, debt or reward) → build its **project page** step by step: business and team, accounts (past results, projections, supporting documents), plan (use of funds that must add up to the goal, milestones, risks, return plan) and **commitments to investors** with a signed declaration → submit for review → answer investor questions, see pledges |
+| Investor | Set preferences → see campaigns ranked by match score → read each project page (Business, Accounts, Plan, Commitments tabs; full accounts and documents after login) → ask questions → pledge (non-binding, after confirming the commitments) → cancel pledges while the campaign is open |
 | Admin | **Control panel** with tabs for every part of the platform: overview and review queue; businesses (verify, reject, revoke); campaigns (approve, reject, close); users (change roles); pledges (cancel); Q&A (remove); settings (sector and city lists, site announcement); and an activity log of every admin action, recorded by the database |
 
 **Login:** email + password with email confirmation, forgot/reset password by email, and persistent sessions (Supabase Auth).

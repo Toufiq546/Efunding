@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { StoreContext, type Store } from "../store";
-import { DEFAULT_SETTINGS, type AuditEntry, type BusinessProfile, type Campaign, type CampaignStats, type DB } from "../types";
+import { DEFAULT_SETTINGS, type AuditEntry, type BusinessProfile, type Campaign, type CampaignStats, type DB, type FinancialSummary } from "../types";
+import { docPath, validateDocument } from "../documents";
+import { profitOf, submitProblems } from "../project";
 import { demoSeed, type DemoData } from "./seed";
 
 /**
@@ -30,10 +32,18 @@ const now = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 
 export function DemoStoreProvider({ children }: { children: ReactNode }) {
-  // Older saved demo data may predate settings/audit: fill those in.
+  // Older saved demo data may predate newer features: fill those parts in from the seed.
   const [data, setData] = useState<DemoData>(() => {
-    const saved = load(KEY, demoSeed) as Partial<DemoData> & Omit<DemoData, "settings" | "audit">;
-    return { ...saved, settings: saved.settings ?? DEFAULT_SETTINGS, audit: saved.audit ?? [] };
+    const seed = demoSeed();
+    const saved = load<Partial<DemoData>>(KEY, () => seed);
+    return {
+      ...seed, ...saved,
+      settings: { ...DEFAULT_SETTINGS, ...saved.settings },
+      audit: saved.audit ?? [],
+      projects: saved.projects ?? seed.projects,
+      financials: saved.financials ?? seed.financials,
+      documents: saved.documents ?? [],
+    } as DemoData;
   });
   const [uid, setUid] = useState<string | null>(() => load<string | null>(SESSION, () => null));
 
@@ -49,7 +59,21 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     return out;
   }, [data]);
 
-  const db: DB = useMemo(() => ({ ...data, stats }), [data, stats]);
+  // Mirrors the campaign_financial_summary view.
+  const financialSummary = useMemo(() => {
+    const out: Record<string, FinancialSummary> = {};
+    for (const f of Object.values(data.financials)) {
+      const [latest, prev] = [...f.history].sort((a, b) => b.year - a.year);
+      out[f.campaignId] = {
+        campaignId: f.campaignId, yearsReported: f.history.length, checked: f.checked, latestYear: latest?.year,
+        revenueGrowthPct: latest && prev && prev.revenue > 0 ? Math.round(((latest.revenue - prev.revenue) / prev.revenue) * 1000) / 10 : null,
+        profitMarginPct: latest && latest.revenue > 0 ? Math.round((profitOf(latest) / latest.revenue) * 1000) / 10 : null,
+      };
+    }
+    return out;
+  }, [data]);
+
+  const db: DB = useMemo(() => ({ ...data, stats, financialSummary }), [data, stats, financialSummary]);
   const role = data.roles.find((r) => r.userId === uid)?.role;
   const me = data.profiles.find((p) => p.id === uid);
   const user = uid && role && me ? { id: uid, name: me.name, email: me.email, role } : null;
@@ -71,6 +95,10 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       (d) => (isAdmin ? check(d) : "Admins only"),
       (d) => { change(d); d.audit.unshift({ ...log, id: id("a"), adminId: uid, createdAt: now() }); },
     );
+  const editable = (d: DemoData, campaignId: string) => {
+    const c = d.campaigns.find((x) => x.id === campaignId);
+    return !!c && c.businessId === uid && (c.status === "draft" || c.status === "rejected");
+  };
   const verified = (businessId: string) => data.businesses.find((b) => b.userId === businessId)?.verification === "verified";
 
   const store = useMemo<Store>(() => ({
@@ -138,6 +166,11 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
           if (input.minInvestment > input.goal) return "Minimum investment cannot exceed the goal.";
           if (submit && !verified(uid!)) return "Your business must be verified before submitting a campaign";
           if (submit && input.deadline <= today()) return "The deadline must be in the future";
+          if (submit) {
+            const draft = { ...input, id: cid, businessId: uid!, status: "draft", createdAt: now() } as Campaign;
+            const problems = submitProblems(draft, data.businesses.find((b) => b.userId === uid), data.projects[cid], data.financials[cid], data.settings);
+            if (problems.length) return `${problems[0].section}: ${problems[0].message}`;
+          }
           return null;
         },
         (d) => {
@@ -225,10 +258,82 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       const sectors = clean(s.sectors), locations = clean(s.locations);
       return adminAct(
         () => (sectors.length && locations.length ? null : "Keep at least one sector and one location"),
-        (d) => { d.settings = { sectors, locations, announcement: s.announcement.trim() }; },
+        (d) => { d.settings = { ...d.settings, sectors, locations, announcement: s.announcement.trim() }; },
         { action: "settings.update", targetType: "settings", targetId: "platform",
           detail: `${sectors.length} sectors, ${locations.length} locations, announcement ${s.announcement.trim() ? "on" : "off"}` },
       );
+    },
+
+    updateProjectSettings(commitments, minReporting, minAccountYears) {
+      const list = commitments.map((x) => x.trim()).filter(Boolean);
+      return adminAct(
+        () => (!list.length ? "Keep at least one standard commitment" : minAccountYears < 0 || minAccountYears > 5 ? "Years of accounts must be between 0 and 5" : null),
+        (d) => { d.settings = { ...d.settings, commitmentOptions: list, minReporting, minAccountYears }; },
+        { action: "settings.project", targetType: "settings", targetId: "platform",
+          detail: `${list.length} commitments, updates at least ${minReporting}, ${minAccountYears} years of accounts` },
+      );
+    },
+
+    checkFinancials(campaignId, checked, note) {
+      return adminAct(
+        (d) => (d.financials[campaignId] ? null : "This campaign has no accounts yet"),
+        (d) => { Object.assign(d.financials[campaignId], { checked, checkedAt: checked ? now() : undefined, checkNote: note?.trim() || undefined }); },
+        { action: checked ? "financials.check" : "financials.uncheck", targetType: "campaign", targetId: campaignId, detail: note ?? null },
+      );
+    },
+
+    /* Project page: the business may edit only while its campaign is a draft or rejected (like campaign_editable()). */
+    saveProject(p) {
+      return mutate(
+        (d) => (editable(d, p.campaignId) ? null : "You can only edit the project page of your own draft or rejected campaign."),
+        (d) => {
+          const old = d.projects[p.campaignId];
+          const name = p.declarationName.trim();
+          // Like the database trigger: the declaration time and accepted commitments are recorded here, not by the form.
+          const redeclare = name && (!old?.declaredAt || old.declarationName !== name);
+          d.projects[p.campaignId] = {
+            ...p, declarationName: name,
+            declaredAt: !name ? undefined : redeclare ? now() : old?.declaredAt,
+            acceptedCommitments: !name ? [] : redeclare ? [...d.settings.commitmentOptions] : old?.acceptedCommitments ?? [],
+          };
+        },
+      );
+    },
+
+    saveFinancials(f) {
+      return mutate(
+        (d) => (editable(d, f.campaignId) ? null : "You can only edit the accounts of your own draft or rejected campaign."),
+        (d) => { d.financials[f.campaignId] = { ...f, checked: false, checkedAt: undefined, checkNote: undefined }; },
+      );
+    },
+
+    async uploadDocument(campaignId, file, kind, title) {
+      // The demo keeps files in this browser, so it uses a smaller limit than the real 10 MB.
+      const invalid = validateDocument(file, title, 1.5 * 1024 * 1024);
+      if (invalid) return invalid;
+      if (!editable(data, campaignId)) return "You can only add documents to your own draft or rejected campaign.";
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(file);
+      });
+      return mutate(() => null, (d) => {
+        d.documents.push({ id: id("d"), campaignId, kind, title: title.trim(), path: docPath(campaignId, file.name), sizeBytes: file.size, mime: file.type, createdAt: now(), dataUrl });
+      });
+    },
+
+    deleteDocument(doc) {
+      return mutate(
+        (d) => (editable(d, doc.campaignId) ? null : "You can only remove documents from your own draft or rejected campaign."),
+        (d) => { d.documents = d.documents.filter((x) => x.id !== doc.id); },
+      );
+    },
+
+    async openDocument(doc) {
+      if (!uid) return { error: "Log in to view documents." };
+      const found = data.documents.find((x) => x.id === doc.id);
+      return found?.dataUrl ? { url: found.dataUrl, error: null } : { error: "Document not found." };
     },
 
     setRole(userId, newRole) {

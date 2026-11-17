@@ -3,7 +3,11 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useStore } from "../../lib/store";
 import { Empty, ErrorNote, ReasonAction, Stat, StatusBadge, TypeBadge } from "../../components/ui";
 import { effectiveStatus, formatDate, formatMoney, raisedFor } from "../../lib/format";
+import { allowedReporting, REPORTING_LABEL, submitProblems } from "../../lib/project";
+import { REPORTING, type Campaign, type Reporting } from "../../lib/types";
 import type { AuditEntry, Role } from "../../lib/types";
+
+const REVIEW_SECTIONS = ["General", "Basics", "Business", "Accounts", "Plan", "Commitments"];
 
 /**
  * Admin control panel. Every action goes through an admin function in the database that re-checks the role
@@ -163,11 +167,12 @@ function Overview({ action, go }: { action: Act; go: (t: Tab) => void }) {
                 <p><span className="badge mr-2 bg-slate-100 text-slate-700">Campaign</span><Link to={`/campaigns/${c.id}`} className="font-semibold text-brand-700 hover:underline">{c.title}</Link></p>
                 <p className="text-slate-600">{biz?.companyName} · Goal {formatMoney(c.goal)} · closes {formatDate(c.deadline)}
                   {biz?.verification !== "verified" && <span className="text-red-600"> · business not verified</span>}</p>
+                <ProjectStatus c={c} action={action} />
               </div>
               <div className="flex flex-wrap gap-2">
                 <button className="btn-primary" disabled={action.busy || biz?.verification !== "verified"} onClick={() => action.act(() => reviewCampaign(c.id, true), `"${c.title}" is live.`)}>Approve</button>
-                <ReasonAction label="Reject" submitLabel="Send rejection" disabled={action.busy}
-                  onSubmit={(r) => action.act(() => reviewCampaign(c.id, false, r), `"${c.title}" rejected.`)} />
+                <ReasonAction label="Request changes" submitLabel="Send to business" disabled={action.busy} sections={REVIEW_SECTIONS}
+                  onSubmit={(r) => action.act(() => reviewCampaign(c.id, false, r), `"${c.title}" sent back to the business.`)} />
               </div>
             </div>
           );
@@ -249,7 +254,7 @@ function Campaigns({ action }: { action: Act }) {
     <div className="space-y-4">
       <Filters value={filter} onChange={setFilter} search={q} onSearch={setQ}
         options={(["all", "pending", "live", "draft", "rejected", "closed"] as F[]).map((v) => [v, v[0].toUpperCase() + v.slice(1), n(v)])} />
-      <Table head={["Campaign", "Type", "Raised / goal", "Deadline", "Status", ""]} empty="No campaigns match.">
+      <Table head={["Campaign", "Type", "Raised / goal", "Deadline", "Status", "Project page", ""]} empty="No campaigns match.">
         {rows.map((c) => {
           const biz = db.businesses.find((b) => b.userId === c.businessId);
           const st = status(c);
@@ -260,12 +265,13 @@ function Campaigns({ action }: { action: Act }) {
               <td className="px-3 py-3 tabular-nums">{formatMoney(raisedFor(db, c.id))}<p className="text-xs text-slate-500">of {formatMoney(c.goal)}</p></td>
               <td className="px-3 py-3">{formatDate(c.deadline)}</td>
               <td className="px-3 py-3"><StatusBadge status={st} />{c.rejectionReason && <p className="mt-1 max-w-48 text-xs text-slate-500">{c.rejectionReason}</p>}</td>
+              <td className="px-3 py-3"><ProjectStatus c={c} action={action} compact /></td>
               <td className="px-3 py-3">
                 <div className="flex flex-wrap justify-end gap-2">
                   {c.status === "pending" && (
                     <>
                       <button className="btn-primary" disabled={action.busy || biz?.verification !== "verified"} onClick={() => action.act(() => reviewCampaign(c.id, true), `"${c.title}" is live.`)}>Approve</button>
-                      <ReasonAction label="Reject" submitLabel="Send rejection" disabled={action.busy} onSubmit={(r) => action.act(() => reviewCampaign(c.id, false, r), `"${c.title}" rejected.`)} />
+                      <ReasonAction label="Request changes" submitLabel="Send to business" disabled={action.busy} sections={REVIEW_SECTIONS} onSubmit={(r) => action.act(() => reviewCampaign(c.id, false, r), `"${c.title}" sent back to the business.`)} />
                     </>
                   )}
                   {st === "live" && (
@@ -447,7 +453,70 @@ function Settings({ action }: { action: Act }) {
         </section>
       </div>
       <button className="btn-primary" disabled={action.busy}>{action.busy ? "Saving…" : "Save settings"}</button>
+      <ProjectSettings action={action} />
     </form>
+  );
+}
+
+/** Project-page rules: standard commitments, reporting minimum, years of accounts. Saved separately (own admin RPC). */
+function ProjectSettings({ action }: { action: Act }) {
+  const { db, updateProjectSettings } = useStore();
+  const [commitments, setCommitments] = useState(db.settings.commitmentOptions.join("\n"));
+  const [minReporting, setMinReporting] = useState<Reporting>(db.settings.minReporting);
+  const [years, setYears] = useState(db.settings.minAccountYears);
+  const list = commitments.split("\n").map((x) => x.trim()).filter(Boolean);
+  return (
+    <section className="card space-y-4 border-t-4 border-t-brand-600">
+      <div>
+        <h2 className="text-lg font-bold">Project pages</h2>
+        <p className="text-sm text-slate-600">Rules every business's project page must meet before it can be submitted.</p>
+      </div>
+      <div className="space-y-2">
+        <label className="label" htmlFor="commitment-options">Standard commitments to investors ({list.length})</label>
+        <textarea id="commitment-options" className="input min-h-40 text-sm" value={commitments} onChange={(e) => setCommitments(e.target.value)} />
+        <p className="text-xs text-slate-500">One per line. Every business accepts these; pages already declared keep the version they accepted.</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="label" htmlFor="min-reporting">Progress updates at least</label>
+          <select id="min-reporting" className="input" value={minReporting} onChange={(e) => setMinReporting(e.target.value as Reporting)}>
+            {REPORTING.map((r) => <option key={r} value={r}>{REPORTING_LABEL[r]}</option>)}
+          </select>
+          <p className="mt-1 text-xs text-slate-500">Businesses can choose: {allowedReporting(minReporting).map((r) => REPORTING_LABEL[r].toLowerCase()).join(", ")}.</p>
+        </div>
+        <div>
+          <label className="label" htmlFor="min-years">Years of past accounts required</label>
+          <input id="min-years" type="number" min={0} max={5} className="input" value={years} onChange={(e) => setYears(Number(e.target.value))} />
+        </div>
+      </div>
+      <button type="button" className="btn-primary" disabled={action.busy}
+        onClick={() => action.act(() => updateProjectSettings(list, minReporting, years), "Project page rules saved.")}>
+        Save project page rules
+      </button>
+    </section>
+  );
+}
+
+/** Completeness, documents and the accounts check for one campaign's project page. */
+function ProjectStatus({ c, action, compact }: { c: Campaign; action: Act; compact?: boolean }) {
+  const { db, checkFinancials } = useStore();
+  const problems = submitProblems(c, db.businesses.find((b) => b.userId === c.businessId), db.projects[c.id], db.financials[c.id], db.settings)
+    .filter((p) => p.section !== "Basics" || !p.message.includes("deadline"));
+  const fin = db.financials[c.id];
+  const docs = db.documents.filter((d) => d.campaignId === c.id).length;
+  return (
+    <div className={`flex flex-wrap items-center gap-2 text-xs ${compact ? "" : "mt-2"}`}>
+      {problems.length === 0
+        ? <span className="badge bg-green-100 text-green-800">Page complete</span>
+        : <span className="badge bg-amber-100 text-amber-800" title={problems.map((p) => `${p.section}: ${p.message}`).join("\n")}>{problems.length} item{problems.length > 1 ? "s" : ""} missing</span>}
+      <span className="text-slate-500">{fin?.history.length ?? 0} yrs accounts · {docs} doc{docs === 1 ? "" : "s"}</span>
+      {fin && (fin.checked
+        ? <button type="button" className="badge bg-green-100 text-green-800 hover:underline" disabled={action.busy} title="Click to remove the check"
+            onClick={() => action.act(() => checkFinancials(c.id, false), `Accounts check removed for "${c.title}".`)}>✓ Accounts checked</button>
+        : <button type="button" className="badge bg-slate-100 text-slate-700 hover:bg-brand-50 hover:text-brand-700" disabled={action.busy}
+            onClick={() => action.act(() => checkFinancials(c.id, true, "Reviewed against the uploaded documents"), `Accounts marked as checked for "${c.title}".`)}>Mark accounts checked</button>)}
+      {!compact && <Link to={`/campaigns/${c.id}`} className="font-semibold text-brand-700 hover:underline">Open project page →</Link>}
+    </div>
   );
 }
 
@@ -463,6 +532,9 @@ const ACTION_LABEL: Record<string, string> = {
   "pledge.cancel": "Cancelled pledge",
   "question.delete": "Removed question",
   "settings.update": "Updated settings",
+  "settings.project": "Updated project page rules",
+  "financials.check": "Marked accounts checked",
+  "financials.uncheck": "Removed accounts check",
 };
 
 function useTargetName() {
