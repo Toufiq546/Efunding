@@ -8,16 +8,16 @@ This project is built **only with Claude Code and GitHub**. It has no connection
 The owner describes changes in chat and watches them appear in a live preview beside the chat.
 
 1. At the start of a session, if the preview is not already running, start it:
-   ```bash
-   npm ci            # if node_modules is missing
-   npm run local:db  # local Supabase in Docker + migration + demo data (~1 min)
-   npm run dev:local # Vite dev server on :5173 with hot reload (run in the background)
-   ```
-   Then call `report_preview_port` with port 5173 so the owner's app can show it.
+   - `npm install` if `node_modules` is missing.
+   - **If `.env` exists** (the owner's PC, connected to their real Supabase project): run `npm run dev` in the background.
+   - **Otherwise** (cloud sessions with Docker): run `npm run local:db` (local Supabase + migration + demo data, ~1 min),
+     then `npm run dev:local` in the background.
+   - The preview is http://localhost:5173. In VS Code, open it beside the chat with
+     Command Palette → "Simple Browser: Show" → `http://localhost:5173`. In a cloud session, call `report_preview_port` with 5173.
 2. Make changes; Vite hot-reloads them into the preview within a second or two. Keep the dev server running.
 3. When a change is done, run `npx tsc -p .` and `npm test`, then commit and push to `main` with a short message describing what changed.
 
-Demo logins (password `demo1234`): `investor@demo.com`, `business@demo.com`, `admin@demo.com`, `newbiz@demo.com` (unverified business).
+Demo logins for the local Docker backend only (password `demo1234`): `investor@demo.com`, `business@demo.com`, `admin@demo.com`, `newbiz@demo.com` (unverified business).
 The local backend is throwaway; `npm run local:db` resets it.
 
 ## Code layout
