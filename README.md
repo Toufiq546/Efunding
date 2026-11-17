@@ -45,7 +45,7 @@ Sign-ups are confirmed instantly in this mode.
 |---|---|
 | Business | Sign up → submit company profile (trade licence, TIN) for verification → create campaigns (equity %/valuation, interest/tenor, or reward tiers) → submit for review → answer investor questions, see pledges |
 | Investor | Set preferences → see campaigns ranked by match score → ask questions → pledge (non-binding) → cancel pledges while the campaign is open |
-| Admin | Verify or reject businesses, approve or reject campaigns (the reason is shown to the business), platform stats |
+| Admin | **Control panel** with tabs for every part of the platform: overview and review queue; businesses (verify, reject, revoke); campaigns (approve, reject, close); users (change roles); pledges (cancel); Q&A (remove); settings (sector and city lists, site announcement); and an activity log of every admin action, recorded by the database |
 
 **Login:** email + password with email confirmation, forgot/reset password by email, and persistent sessions (Supabase Auth).
 

@@ -12,6 +12,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import SetupNotice from "./pages/SetupNotice";
+import ControlPanel from "./pages/admin/ControlPanel";
 import { useStore } from "./lib/store";
 import { isConfigured } from "./lib/supabase";
 import { isDemo } from "./lib/mode";
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="forgot-password" element={<ForgotPassword />} />
         <Route path="reset-password" element={<ResetPassword />} />
         <Route path="dashboard" element={<RequireRole><Dashboard /></RequireRole>} />
+        <Route path="admin" element={<RequireRole role="admin"><ControlPanel /></RequireRole>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

@@ -8,7 +8,7 @@ const navCls = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-medium ${isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:text-slate-900"}`;
 
 export default function Layout() {
-  const { user, signOut } = useStore();
+  const { user, signOut, db } = useStore();
   const nav = useNavigate();
 
   return (
@@ -21,6 +21,11 @@ export default function Layout() {
           </div>
         </div>
       )}
+      {db.settings.announcement && (
+        <div className="bg-brand-700 text-white" role="status">
+          <p className="mx-auto max-w-6xl px-4 py-2 text-center text-sm">{db.settings.announcement}</p>
+        </div>
+      )}
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-4 py-3">
           <Link to="/" className="mr-4 flex items-center gap-2 text-lg font-bold text-brand-700">
@@ -29,7 +34,7 @@ export default function Layout() {
           </Link>
           <nav className="flex flex-1 flex-wrap items-center gap-1">
             <NavLink to="/campaigns" className={navCls}>Browse campaigns</NavLink>
-            {user && <NavLink to="/dashboard" className={navCls}>Dashboard</NavLink>}
+            {user && <NavLink to="/dashboard" className={navCls}>{user.role === "admin" ? "Control panel" : "Dashboard"}</NavLink>}
           </nav>
           {user ? (
             <div className="flex items-center gap-3 text-sm">

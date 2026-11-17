@@ -1,4 +1,4 @@
-import type { DB, Role } from "../types";
+import { DEFAULT_SETTINGS, type DB, type Role } from "../types";
 
 const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 const ago = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
@@ -21,6 +21,8 @@ const people: [string, string, string, Role][] = [
 /** Sample data for demo mode (the in-browser preview). Mirrors supabase/seed.sql. */
 export function demoSeed(): DemoData {
   return {
+    settings: { ...DEFAULT_SETTINGS },
+    audit: [],
     accounts: people.map(([userId, email]) => ({ userId, email, password: DEMO_PASSWORD })),
     profiles: people.map(([id, email, name], i) => ({ id, email, name, createdAt: ago(60 - i * 5) })),
     roles: people.map(([userId, , , role]) => ({ userId, role })),

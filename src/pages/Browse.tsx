@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
 import { CampaignCard, Empty } from "../components/ui";
-import { CAMPAIGN_TYPES, SECTORS, type CampaignType } from "../lib/types";
+import { CAMPAIGN_TYPES, type CampaignType } from "../lib/types";
 import { TYPE_LABEL, daysLeft, effectiveStatus, raisedFor } from "../lib/format";
 import { scoreMatch } from "../lib/matching";
 
@@ -53,7 +53,7 @@ export default function Browse() {
         </select>
         <select className="input" value={sector} onChange={(e) => setSector(e.target.value)}>
           <option value="">All sectors</option>
-          {SECTORS.map((s) => <option key={s}>{s}</option>)}
+          {db.settings.sectors.map((s) => <option key={s}>{s}</option>)}
         </select>
         <select className="input" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
           {pref && <option value="match">Best match</option>}

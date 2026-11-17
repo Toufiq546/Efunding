@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { StoreContext, type Store } from "../store";
-import type { BusinessProfile, Campaign, CampaignStats, DB } from "../types";
+import { DEFAULT_SETTINGS, type AuditEntry, type BusinessProfile, type Campaign, type CampaignStats, type DB } from "../types";
 import { demoSeed, type DemoData } from "./seed";
 
 /**
@@ -30,7 +30,11 @@ const now = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 
 export function DemoStoreProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<DemoData>(() => load(KEY, demoSeed));
+  // Older saved demo data may predate settings/audit: fill those in.
+  const [data, setData] = useState<DemoData>(() => {
+    const saved = load(KEY, demoSeed) as Partial<DemoData> & Omit<DemoData, "settings" | "audit">;
+    return { ...saved, settings: saved.settings ?? DEFAULT_SETTINGS, audit: saved.audit ?? [] };
+  });
   const [uid, setUid] = useState<string | null>(() => load<string | null>(SESSION, () => null));
 
   useEffect(() => save(KEY, data), [data]);
@@ -61,6 +65,12 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
   }, [data]);
 
   const isAdmin = role === "admin";
+  /** Admin change + activity-log entry, like the database's admin_log(). */
+  const adminAct = (check: (d: DemoData) => string | null, change: (d: DemoData) => void, log: Omit<AuditEntry, "id" | "adminId" | "createdAt">) =>
+    mutate(
+      (d) => (isAdmin ? check(d) : "Admins only"),
+      (d) => { change(d); d.audit.unshift({ ...log, id: id("a"), adminId: uid, createdAt: now() }); },
+    );
   const verified = (businessId: string) => data.businesses.find((b) => b.userId === businessId)?.verification === "verified";
 
   const store = useMemo<Store>(() => ({
@@ -142,23 +152,24 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     },
 
     reviewCampaign(cid, approve, reason) {
-      return mutate(
+      return adminAct(
         (d) => {
           const c = d.campaigns.find((x) => x.id === cid);
-          if (!isAdmin) return "Admins only";
           if (!c || c.status !== "pending") return "Only campaigns pending review can be approved or rejected";
           if (approve && !verified(c.businessId)) return "The business must be verified first";
           if (!approve && !reason?.trim()) return "A rejection reason is required";
           return null;
         },
         (d) => { const c = d.campaigns.find((x) => x.id === cid)!; c.status = approve ? "live" : "rejected"; c.rejectionReason = approve ? undefined : reason; },
+        { action: approve ? "campaign.approve" : "campaign.reject", targetType: "campaign", targetId: cid, detail: reason ?? null },
       );
     },
 
     setVerification(userId, approve, reason) {
-      return mutate(
-        () => (!isAdmin ? "Admins only" : !approve && !reason?.trim() ? "A rejection reason is required" : null),
+      return adminAct(
+        () => (!approve && !reason?.trim() ? "A rejection reason is required" : null),
         (d) => { const b = d.businesses.find((x) => x.userId === userId); if (b) { b.verification = approve ? "verified" : "rejected"; b.rejectionReason = approve ? undefined : reason; } },
+        { action: approve ? "business.verify" : "business.reject", targetType: "business", targetId: userId, detail: reason ?? null },
       );
     },
 
@@ -202,6 +213,59 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
           return c?.businessId === uid ? null : "Only the business that owns this campaign can answer";
         },
         (d) => { const q = d.questions.find((x) => x.id === questionId)!; q.answer = { text: text.trim(), at: now() }; },
+      );
+    },
+
+    updateSettings(s) {
+      const clean = (xs: string[]) => {
+        const seen = new Set<string>();
+        return xs.map((x) => x.trim()).filter((x) => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase()))
+          .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+      };
+      const sectors = clean(s.sectors), locations = clean(s.locations);
+      return adminAct(
+        () => (sectors.length && locations.length ? null : "Keep at least one sector and one location"),
+        (d) => { d.settings = { sectors, locations, announcement: s.announcement.trim() }; },
+        { action: "settings.update", targetType: "settings", targetId: "platform",
+          detail: `${sectors.length} sectors, ${locations.length} locations, announcement ${s.announcement.trim() ? "on" : "off"}` },
+      );
+    },
+
+    setRole(userId, newRole) {
+      return adminAct(
+        (d) => (userId === uid ? "You cannot change your own role" : d.roles.some((r) => r.userId === userId) ? null : "User not found"),
+        (d) => {
+          d.roles = d.roles.map((r) => (r.userId === userId ? { ...r, role: newRole } : r));
+          if (newRole === "investor" && !d.investors.some((i) => i.userId === userId)) {
+            d.investors.push({ userId, sectors: [], locations: [], types: [], minTicket: 5000, maxTicket: 100000, risk: "medium" });
+          }
+        },
+        { action: "user.set_role", targetType: "user", targetId: userId, detail: newRole },
+      );
+    },
+
+    closeCampaign(cid, reason) {
+      return adminAct(
+        (d) => (!reason.trim() ? "A reason is required to close a campaign" : d.campaigns.find((c) => c.id === cid)?.status !== "live" ? "Only live campaigns can be closed" : null),
+        (d) => { const c = d.campaigns.find((x) => x.id === cid)!; c.status = "closed"; c.rejectionReason = reason.trim(); },
+        { action: "campaign.close", targetType: "campaign", targetId: cid, detail: reason },
+      );
+    },
+
+    adminCancelPledge(pid, reason) {
+      return adminAct(
+        (d) => (!reason.trim() ? "A reason is required to cancel a pledge" : d.pledges.find((p) => p.id === pid)?.status !== "active" ? "Only active pledges can be cancelled" : null),
+        (d) => { const p = d.pledges.find((x) => x.id === pid)!; p.status = "cancelled"; },
+        { action: "pledge.cancel", targetType: "pledge", targetId: pid, detail: reason },
+      );
+    },
+
+    deleteQuestion(qid, reason) {
+      const q = data.questions.find((x) => x.id === qid);
+      return adminAct(
+        () => (q ? null : "Question not found"),
+        (d) => { d.questions = d.questions.filter((x) => x.id !== qid); },
+        { action: "question.delete", targetType: "question", targetId: qid, detail: `${reason.trim() || "No reason given"} | removed text: ${q?.text.slice(0, 200) ?? ""}` },
       );
     },
 

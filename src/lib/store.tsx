@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { PostgrestError, Session } from "@supabase/supabase-js";
 import { isConfigured, supabase } from "./supabase";
+import { DEFAULT_SETTINGS } from "./types";
 import type {
-  BusinessProfile, Campaign, DB, InvestorProfile, Pledge, Question, Role, User,
+  BusinessProfile, Campaign, DB, InvestorProfile, PlatformSettings, Pledge, Question, Role, User,
 } from "./types";
 
 /**
@@ -32,10 +33,19 @@ export interface Store {
   cancelPledge(id: string): Result;
   ask(campaignId: string, text: string): Result;
   answer(questionId: string, text: string): Result;
+  /* Admin control panel (every call is re-checked and logged by the database). */
+  updateSettings(s: PlatformSettings): Result;
+  setRole(userId: string, role: Role): Result;
+  closeCampaign(id: string, reason: string): Result;
+  adminCancelPledge(id: string, reason: string): Result;
+  deleteQuestion(id: string, reason: string): Result;
   reload(): Promise<void>;
 }
 
-const EMPTY: DB = { profiles: [], roles: [], stats: {}, businesses: [], investors: [], campaigns: [], pledges: [], questions: [] };
+const EMPTY: DB = {
+  profiles: [], roles: [], stats: {}, businesses: [], investors: [], campaigns: [], pledges: [], questions: [],
+  settings: DEFAULT_SETTINGS, audit: [],
+};
 
 export const StoreContext = createContext<Store | null>(null);
 
@@ -128,7 +138,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     if (!isConfigured) return;
-    const [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles] = await Promise.all([
+    const [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit] = await Promise.all([
       supabase.from("campaigns").select("*").order("created_at", { ascending: false }),
       supabase.from("campaign_stats").select("*"),
       supabase.from("business_public").select("*"),
@@ -138,8 +148,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       uid ? supabase.from("investor_prefs").select("*") : null,
       uid ? supabase.from("profiles").select("*") : null,
       uid ? supabase.from("user_roles").select("*") : null,
+      supabase.from("platform_settings").select("*").maybeSingle(),
+      // Only admins can read the log (RLS returns nothing for everyone else).
+      uid ? supabase.from("admin_audit").select("*").order("created_at", { ascending: false }).limit(300) : null,
     ]);
-    const firstError = [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles].find((r) => r?.error)?.error;
+    const firstError = [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit]
+      .find((r) => r?.error)?.error;
     if (firstError) console.error("Load failed:", firstError.message);
 
     // Full rows (own / all for admin) win over the public view.
@@ -156,6 +170,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       investors: (prefs?.data ?? []).map(toInvestor),
       profiles: (profiles?.data ?? []).map((r) => ({ id: r.id, name: r.full_name, email: r.email, createdAt: r.created_at })),
       roles: (roles?.data ?? []).map((r) => ({ userId: r.user_id, role: r.role })),
+      settings: settings.data
+        ? { sectors: settings.data.sectors, locations: settings.data.locations, announcement: settings.data.announcement ?? "" }
+        : DEFAULT_SETTINGS,
+      audit: (audit?.data ?? []).map((r) => ({
+        id: String(r.id), adminId: r.admin_id, action: r.action, targetType: r.target_type,
+        targetId: r.target_id, detail: r.detail, createdAt: r.created_at,
+      })),
     };
     setDb(next);
 
@@ -279,6 +300,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     answer(questionId, text) {
       return run(() => supabase.rpc("answer_question", { _question_id: questionId, _answer: text.trim() }));
+    },
+
+    updateSettings(s) {
+      return run(() => supabase.rpc("admin_update_settings", { _sectors: s.sectors, _locations: s.locations, _announcement: s.announcement }));
+    },
+    setRole(userId, role) {
+      return run(() => supabase.rpc("admin_set_role", { _user_id: userId, _role: role }));
+    },
+    closeCampaign(id, reason) {
+      return run(() => supabase.rpc("admin_close_campaign", { _campaign_id: id, _reason: reason }));
+    },
+    adminCancelPledge(id, reason) {
+      return run(() => supabase.rpc("admin_cancel_pledge", { _pledge_id: id, _reason: reason }));
+    },
+    deleteQuestion(id, reason) {
+      return run(() => supabase.rpc("admin_delete_question", { _question_id: id, _reason: reason }));
     },
 
     reload,

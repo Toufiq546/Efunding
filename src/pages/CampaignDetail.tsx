@@ -83,6 +83,9 @@ export default function CampaignDetail() {
           <h1 className="text-3xl font-bold">{c.title}</h1>
           <p className="text-lg text-slate-600">{c.summary}</p>
           <ErrorNote>{err}</ErrorNote>
+          {c.status === "closed" && c.rejectionReason && (isOwner || isAdmin) && (
+            <p className="rounded-lg bg-slate-100 p-3 text-sm text-slate-700">Closed by admin: {c.rejectionReason}</p>
+          )}
           {c.status === "rejected" && c.rejectionReason && (
             <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">Rejected by admin: {c.rejectionReason}</p>
           )}

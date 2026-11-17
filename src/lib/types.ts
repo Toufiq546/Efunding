@@ -127,6 +127,27 @@ export interface Question {
   answer?: { text: string; at: string };
 }
 
+/** Admin-editable platform settings (single row in public.platform_settings). */
+export interface PlatformSettings {
+  sectors: string[];
+  locations: string[];
+  /** Site-wide banner text; empty means no banner. */
+  announcement: string;
+}
+
+export const DEFAULT_SETTINGS: PlatformSettings = { sectors: [...SECTORS], locations: [...LOCATIONS], announcement: "" };
+
+/** One row of the admin activity log (visible to admins only). */
+export interface AuditEntry {
+  id: string;
+  adminId: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  detail: string | null;
+  createdAt: string;
+}
+
 export interface CampaignStats {
   raised: number;
   backers: number;
@@ -137,6 +158,9 @@ export interface DB {
   profiles: Profile[];
   roles: { userId: string; role: Role }[];
   stats: Record<string, CampaignStats>;
+  settings: PlatformSettings;
+  /** Admin activity log, newest first (empty for non-admins). */
+  audit: AuditEntry[];
   businesses: BusinessProfile[];
   investors: InvestorProfile[];
   campaigns: Campaign[];

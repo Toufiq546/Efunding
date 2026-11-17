@@ -1,7 +1,10 @@
 -- Minimal stand-in for the parts of Supabase the migration relies on, so the schema and its
 -- security rules can be tested on a plain Postgres. Never run this against a real Supabase project.
-create role anon nologin;
-create role authenticated nologin;
+-- Roles are cluster-wide, so tolerate them already existing from an earlier run.
+do $$ begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
+end $$;
 create schema auth;
 create table auth.users (
   id uuid primary key default gen_random_uuid(),

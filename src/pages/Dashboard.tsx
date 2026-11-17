@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../lib/store";
-import { CampaignCard, Chips, ConfirmButton, Empty, ErrorNote, RejectWithReason, Stat, StatusBadge, TypeBadge } from "../components/ui";
-import { CAMPAIGN_TYPES, LOCATIONS, RISKS, SECTORS, type BusinessProfile, type InvestorProfile } from "../lib/types";
-import { TYPE_LABEL, effectiveStatus, formatDate, formatMoney, raisedFor } from "../lib/format";
+import { CampaignCard, Chips, ConfirmButton, Empty, ErrorNote, Stat, StatusBadge, TypeBadge } from "../components/ui";
+import { CAMPAIGN_TYPES, RISKS, type BusinessProfile, type InvestorProfile } from "../lib/types";
+import { TYPE_LABEL, effectiveStatus, formatDate, formatMoney, raisedFor, withCurrent } from "../lib/format";
 import { rankCampaigns } from "../lib/matching";
+import ControlPanel from "./admin/ControlPanel";
 
 export default function Dashboard() {
   const { user } = useStore();
@@ -13,11 +14,11 @@ export default function Dashboard() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold">Welcome, {user.name.split(" ")[0]}</h1>
-        <p className="text-sm capitalize text-slate-500">{user.role} dashboard</p>
+        <p className="text-sm capitalize text-slate-500">{user.role === "admin" ? "Admin control panel" : `${user.role} dashboard`}</p>
       </div>
       {user.role === "investor" && <InvestorDashboard />}
       {user.role === "business" && <BusinessDashboard />}
-      {user.role === "admin" && <AdminDashboard />}
+      {user.role === "admin" && <ControlPanel />}
     </div>
   );
 }
@@ -78,9 +79,9 @@ function InvestorDashboard() {
           <h2 className="text-xl font-bold">Investment preferences</h2>
           <p className="text-sm text-slate-500">These drive your match scores. Leave a group empty to stay open to everything in it.</p>
         </div>
-        <div><label className="label">Sectors</label><Chips options={SECTORS} value={pref.sectors} onChange={(sectors) => setPref({ ...pref, sectors })} /></div>
+        <div><label className="label">Sectors</label><Chips options={db.settings.sectors} value={pref.sectors} onChange={(sectors) => setPref({ ...pref, sectors })} /></div>
         <div><label className="label">Deal types</label><Chips options={CAMPAIGN_TYPES} value={pref.types} onChange={(types) => setPref({ ...pref, types })} render={(t) => TYPE_LABEL[t]} /></div>
-        <div><label className="label">Locations</label><Chips options={LOCATIONS} value={pref.locations} onChange={(locations) => setPref({ ...pref, locations })} /></div>
+        <div><label className="label">Locations</label><Chips options={db.settings.locations} value={pref.locations} onChange={(locations) => setPref({ ...pref, locations })} /></div>
         <div className="grid gap-4 sm:grid-cols-3">
           <div><label className="label">Min ticket (৳)</label><input className="input" type="number" min={0} value={pref.minTicket} onChange={(e) => setPref({ ...pref, minTicket: Number(e.target.value) })} /></div>
           <div><label className="label">Max ticket (৳)</label><input className="input" type="number" min={0} value={pref.maxTicket} onChange={(e) => setPref({ ...pref, maxTicket: Number(e.target.value) })} /></div>
@@ -142,8 +143,8 @@ function BusinessDashboard() {
   const [p, setP] = useState<Omit<BusinessProfile, "verification" | "rejectionReason">>({
     userId: user!.id,
     companyName: existing?.companyName ?? "",
-    sector: existing?.sector ?? SECTORS[0],
-    location: existing?.location ?? LOCATIONS[0],
+    sector: existing?.sector ?? db.settings.sectors[0],
+    location: existing?.location ?? db.settings.locations[0],
     foundedYear: existing?.foundedYear ?? new Date().getFullYear(),
     tradeLicenseNo: existing?.tradeLicenseNo ?? "",
     tin: existing?.tin ?? "",
@@ -203,8 +204,8 @@ function BusinessDashboard() {
               <div><label className="label">Website</label><input className="input" value={p.website} onChange={(e) => setP({ ...p, website: e.target.value })} placeholder="https://" /></div>
               <div><label className="label">Trade licence no. *</label><input className="input" value={p.tradeLicenseNo} onChange={(e) => setP({ ...p, tradeLicenseNo: e.target.value })} /></div>
               <div><label className="label">TIN *</label><input className="input" value={p.tin} onChange={(e) => setP({ ...p, tin: e.target.value })} /></div>
-              <div><label className="label">Sector</label><select className="input" value={p.sector} onChange={(e) => setP({ ...p, sector: e.target.value })}>{SECTORS.map((s) => <option key={s}>{s}</option>)}</select></div>
-              <div><label className="label">Location</label><select className="input" value={p.location} onChange={(e) => setP({ ...p, location: e.target.value })}>{LOCATIONS.map((s) => <option key={s}>{s}</option>)}</select></div>
+              <div><label className="label">Sector</label><select className="input" value={p.sector} onChange={(e) => setP({ ...p, sector: e.target.value })}>{withCurrent(db.settings.sectors, p.sector).map((s) => <option key={s}>{s}</option>)}</select></div>
+              <div><label className="label">Location</label><select className="input" value={p.location} onChange={(e) => setP({ ...p, location: e.target.value })}>{withCurrent(db.settings.locations, p.location).map((s) => <option key={s}>{s}</option>)}</select></div>
               <div><label className="label">Year founded</label><input className="input" type="number" value={p.foundedYear} onChange={(e) => setP({ ...p, foundedYear: Number(e.target.value) })} /></div>
             </div>
             <div><label className="label">About the business</label><textarea className="input min-h-24" value={p.description} onChange={(e) => setP({ ...p, description: e.target.value })} /></div>
@@ -269,74 +270,6 @@ function BusinessDashboard() {
           </ul>
         </section>
       )}
-    </>
-  );
-}
-
-/* ───────────────────────── Admin ───────────────────────── */
-
-function AdminDashboard() {
-  const { db, setVerification, reviewCampaign } = useStore();
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const act = async (fn: () => Promise<string | null>) => {
-    setBusy(true);
-    setErr(await fn());
-    setBusy(false);
-  };
-  const pendingBiz = db.businesses.filter((b) => b.verification === "pending");
-  const pendingCampaigns = db.campaigns.filter((c) => c.status === "pending");
-  const totalPledged = Object.values(db.stats).reduce((s, x) => s + x.raised, 0);
-
-
-  return (
-    <>
-      <ErrorNote>{err}</ErrorNote>
-      <div className="grid gap-4 sm:grid-cols-4">
-        <Stat label="Investors" value={db.roles.filter((r) => r.role === "investor").length} />
-        <Stat label="Businesses" value={db.businesses.length} />
-        <Stat label="Live campaigns" value={db.campaigns.filter((c) => effectiveStatus(c) === "live").length} />
-        <Stat label="Total pledged" value={formatMoney(totalPledged)} />
-      </div>
-
-      <section className="card space-y-3">
-        <h2 className="text-xl font-bold">Businesses awaiting verification ({pendingBiz.length})</h2>
-        {pendingBiz.length === 0 ? <p className="text-sm text-slate-500">All caught up.</p> : pendingBiz.map((b) => {
-          const owner = db.profiles.find((u) => u.id === b.userId);
-          return (
-            <div key={b.userId} className="flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-sm">
-                <p className="font-semibold">{b.companyName} <span className="font-normal text-slate-500">· {b.sector} · {b.location}</span></p>
-                <p className="text-slate-600">Trade licence <b>{b.tradeLicenseNo}</b> · TIN <b>{b.tin}</b> · Founded {b.foundedYear}</p>
-                <p className="text-xs text-slate-500">Owner: {owner?.name} ({owner?.email})</p>
-              </div>
-              <div className="flex gap-2">
-                <button className="btn-primary" disabled={busy} onClick={() => act(() => setVerification(b.userId, true))}>Verify</button>
-                <RejectWithReason disabled={busy} onReject={(r) => act(() => setVerification(b.userId, false, r))} />
-              </div>
-            </div>
-          );
-        })}
-      </section>
-
-      <section className="card space-y-3">
-        <h2 className="text-xl font-bold">Campaigns awaiting approval ({pendingCampaigns.length})</h2>
-        {pendingCampaigns.length === 0 ? <p className="text-sm text-slate-500">All caught up.</p> : pendingCampaigns.map((c) => {
-          const biz = db.businesses.find((b) => b.userId === c.businessId);
-          return (
-            <div key={c.id} className="flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-sm">
-                <p className="font-semibold"><Link to={`/campaigns/${c.id}`} className="text-brand-700 hover:underline">{c.title}</Link></p>
-                <p className="text-slate-600">{biz?.companyName} {biz?.verification !== "verified" && <span className="text-red-600">(business not verified)</span>} · {TYPE_LABEL[c.type]} · Goal {formatMoney(c.goal)} · closes {formatDate(c.deadline)}</p>
-              </div>
-              <div className="flex gap-2">
-                <button className="btn-primary" disabled={busy || biz?.verification !== "verified"} onClick={() => act(() => reviewCampaign(c.id, true))}>Approve</button>
-                <RejectWithReason disabled={busy} onReject={(r) => act(() => reviewCampaign(c.id, false, r))} />
-              </div>
-            </div>
-          );
-        })}
-      </section>
     </>
   );
 }

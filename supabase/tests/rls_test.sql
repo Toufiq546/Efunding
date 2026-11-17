@@ -170,5 +170,35 @@ select pg_temp.act_as(:A);
 select pg_temp.check((select count(*) from public.profiles) = 5 and (select count(*) from public.user_roles) = 5, 'admin sees all profiles and roles');
 reset role;
 
+-- ───────── Admin control panel ─────────
+select pg_temp.act_as(null);
+select pg_temp.check((select cardinality(sectors) from public.platform_settings) = 10, 'anon reads platform settings');
+reset role;
+select pg_temp.expect_fail(null, $$update public.platform_settings set announcement = 'hacked'$$, 'permission denied');
+select pg_temp.expect_fail(:I1, $$select public.admin_update_settings('{X}', '{Y}', 'hi')$$, 'Admins only');
+select pg_temp.expect_fail(:B1, $$select public.admin_set_role(auth.uid(), 'admin')$$, 'Admins only');
+select pg_temp.expect_fail(:I1, $$select public.admin_close_campaign((select id from public.campaigns limit 1), 'x')$$, 'Admins only');
+select pg_temp.expect_fail(:I1, $$select public.admin_log('x', 'y', 'z')$$, 'permission denied');
+select pg_temp.expect_fail(:A, $$select public.admin_set_role(auth.uid(), 'investor')$$, 'own role');
+select pg_temp.expect_fail(:A, $$select public.admin_update_settings('{}', '{Dhaka}', '')$$, 'at least one');
+
+select pg_temp.act_as(:A);
+select public.admin_update_settings(array['Fintech', ' fintech ', 'Agriculture', ''], array['Dhaka'], '  Maintenance on Friday  ');
+select pg_temp.check((select sectors = array['Agriculture', 'Fintech'] and announcement = 'Maintenance on Friday' from public.platform_settings),
+  'settings are trimmed and de-duplicated');
+select public.admin_set_role(:I2, 'business');
+select public.admin_cancel_pledge((select id from public.pledges where status = 'active' limit 1), 'Duplicate pledge');
+select public.admin_delete_question((select id from public.questions limit 1), 'Spam');
+select public.admin_close_campaign((select id from public.campaigns where status = 'live' limit 1), 'Business asked to stop');
+select pg_temp.check((select count(*) from public.admin_audit) = 7, 'every admin action is in the activity log');
+reset role;
+select pg_temp.check((select role from public.user_roles where user_id = :I2) = 'business', 'admin changed a role');
+select pg_temp.check((select count(*) from public.questions) = 0, 'admin removed a question');
+select pg_temp.check((select status from public.campaigns limit 1) = 'closed', 'admin closed a live campaign');
+select pg_temp.expect_fail(:I1, $$insert into public.pledges (campaign_id, amount) select id, 5000 from public.campaigns$$, 'not accepting');
+select pg_temp.act_as(:I1);
+select pg_temp.check((select count(*) from public.admin_audit) = 0, 'non-admins cannot read the activity log');
+reset role;
+
 rollback;
 \echo 'ALL TESTS PASSED'

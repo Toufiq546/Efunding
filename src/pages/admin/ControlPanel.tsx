@@ -1,0 +1,522 @@
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useStore } from "../../lib/store";
+import { Empty, ErrorNote, ReasonAction, Stat, StatusBadge, TypeBadge } from "../../components/ui";
+import { effectiveStatus, formatDate, formatMoney, raisedFor } from "../../lib/format";
+import type { AuditEntry, Role } from "../../lib/types";
+
+/**
+ * Admin control panel. Every action goes through an admin function in the database that re-checks the role
+ * and writes the activity log. New features add their own tab here (see CLAUDE.md).
+ */
+
+const TABS = [
+  ["overview", "Overview"],
+  ["businesses", "Businesses"],
+  ["campaigns", "Campaigns"],
+  ["users", "Users"],
+  ["pledges", "Pledges"],
+  ["questions", "Q&A"],
+  ["settings", "Settings"],
+  ["activity", "Activity log"],
+] as const;
+type Tab = (typeof TABS)[number][0];
+
+/** Shared state for every tab: one busy flag and one result message. */
+function useAdminAction() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const act = async (fn: () => Promise<string | null>, success: string) => {
+    setBusy(true);
+    setErr(null);
+    setOk(null);
+    const error = await fn();
+    setBusy(false);
+    if (error) setErr(error);
+    else setOk(success);
+  };
+  return { busy, err, ok, act };
+}
+type Act = ReturnType<typeof useAdminAction>;
+
+export default function ControlPanel() {
+  const [params, setParams] = useSearchParams();
+  const tab = (TABS.some(([t]) => t === params.get("tab")) ? params.get("tab") : "overview") as Tab;
+  const action = useAdminAction();
+  const { db } = useStore();
+  const pendingBiz = db.businesses.filter((b) => b.verification === "pending").length;
+  const pendingCampaigns = db.campaigns.filter((c) => c.status === "pending").length;
+  const badge: Partial<Record<Tab, number>> = { businesses: pendingBiz, campaigns: pendingCampaigns };
+
+  return (
+    <div className="space-y-6">
+      <nav className="-mx-1 flex gap-1 overflow-x-auto border-b border-slate-200 px-1" aria-label="Control panel sections">
+        {TABS.map(([t, label]) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setParams({ tab: t })}
+            aria-current={tab === t ? "page" : undefined}
+            className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium ${
+              tab === t ? "border-brand-600 text-brand-700" : "border-transparent text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            {label}
+            {!!badge[t] && <span className="badge bg-yellow-100 text-yellow-800">{badge[t]}</span>}
+          </button>
+        ))}
+      </nav>
+
+      <ErrorNote>{action.err}</ErrorNote>
+      {action.ok && <p className="rounded-lg bg-brand-50 p-3 text-sm text-brand-700" role="status">{action.ok}</p>}
+
+      {tab === "overview" && <Overview action={action} go={(t) => setParams({ tab: t })} />}
+      {tab === "businesses" && <Businesses action={action} />}
+      {tab === "campaigns" && <Campaigns action={action} />}
+      {tab === "users" && <Users action={action} />}
+      {tab === "pledges" && <Pledges action={action} />}
+      {tab === "questions" && <Questions action={action} />}
+      {tab === "settings" && <Settings action={action} />}
+      {tab === "activity" && <Activity />}
+    </div>
+  );
+}
+
+/* ───────────── shared pieces ───────────── */
+
+function Table({ head, children, empty }: { head: string[]; children: ReactNode[]; empty: string }) {
+  if (children.length === 0) return <Empty>{empty}</Empty>;
+  return (
+    <div className="card overflow-x-auto p-0">
+      <table className="w-full min-w-[720px] text-sm">
+        <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+          <tr>{head.map((h, i) => <th key={i} className="px-3 py-2 font-semibold">{h}</th>)}</tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function Filters<T extends string>({ value, onChange, options, search, onSearch }: {
+  value: T; onChange: (v: T) => void; options: [T, string, number][]; search: string; onSearch: (s: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-wrap gap-2">
+        {options.map(([v, label, count]) => (
+          <button key={v} type="button" onClick={() => onChange(v)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium ${value === v ? "border-brand-600 bg-brand-600 text-white" : "border-slate-300 bg-white text-slate-700 hover:border-brand-500"}`}>
+            {label} · {count}
+          </button>
+        ))}
+      </div>
+      <input className="input sm:w-64" placeholder="Search…" aria-label="Search" value={search} onChange={(e) => onSearch(e.target.value)} />
+    </div>
+  );
+}
+
+const matches = (q: string, ...fields: (string | undefined)[]) => !q || fields.join(" ").toLowerCase().includes(q.toLowerCase());
+
+/* ───────────── Overview ───────────── */
+
+function Overview({ action, go }: { action: Act; go: (t: Tab) => void }) {
+  const { db, setVerification, reviewCampaign } = useStore();
+  const count = (r: Role) => db.roles.filter((x) => x.role === r).length;
+  const totalPledged = Object.values(db.stats).reduce((s, x) => s + x.raised, 0);
+  const pendingBiz = db.businesses.filter((b) => b.verification === "pending");
+  const pendingCampaigns = db.campaigns.filter((c) => c.status === "pending");
+  const live = db.campaigns.filter((c) => effectiveStatus(c) === "live");
+  const funded = db.campaigns.filter((c) => raisedFor(db, c.id) >= c.goal).length;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Investors" value={count("investor")} />
+        <Stat label="Businesses" value={`${db.businesses.filter((b) => b.verification === "verified").length} verified / ${db.businesses.length}`} />
+        <Stat label="Live campaigns" value={`${live.length} (${funded} funded)`} />
+        <Stat label="Total pledged" value={formatMoney(totalPledged)} />
+      </div>
+
+      <section className="card space-y-3">
+        <h2 className="text-lg font-bold">Needs your review</h2>
+        {pendingBiz.length + pendingCampaigns.length === 0 && <p className="text-sm text-slate-500">Nothing is waiting. All caught up.</p>}
+        {pendingBiz.map((b) => (
+          <div key={b.userId} className="flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm">
+              <p><span className="badge mr-2 bg-slate-100 text-slate-700">Business</span><b>{b.companyName}</b> · {b.sector} · {b.location}</p>
+              <p className="text-slate-600">Trade licence <b>{b.tradeLicenseNo}</b> · TIN <b>{b.tin}</b></p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-primary" disabled={action.busy} onClick={() => action.act(() => setVerification(b.userId, true), `${b.companyName} verified.`)}>Verify</button>
+              <ReasonAction label="Reject" submitLabel="Send rejection" disabled={action.busy}
+                onSubmit={(r) => action.act(() => setVerification(b.userId, false, r), `${b.companyName} rejected.`)} />
+            </div>
+          </div>
+        ))}
+        {pendingCampaigns.map((c) => {
+          const biz = db.businesses.find((b) => b.userId === c.businessId);
+          return (
+            <div key={c.id} className="flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm">
+                <p><span className="badge mr-2 bg-slate-100 text-slate-700">Campaign</span><Link to={`/campaigns/${c.id}`} className="font-semibold text-brand-700 hover:underline">{c.title}</Link></p>
+                <p className="text-slate-600">{biz?.companyName} · Goal {formatMoney(c.goal)} · closes {formatDate(c.deadline)}
+                  {biz?.verification !== "verified" && <span className="text-red-600"> · business not verified</span>}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-primary" disabled={action.busy || biz?.verification !== "verified"} onClick={() => action.act(() => reviewCampaign(c.id, true), `"${c.title}" is live.`)}>Approve</button>
+                <ReasonAction label="Reject" submitLabel="Send rejection" disabled={action.busy}
+                  onSubmit={(r) => action.act(() => reviewCampaign(c.id, false, r), `"${c.title}" rejected.`)} />
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">Recent admin activity</h2>
+          <button type="button" className="text-sm font-semibold text-brand-700 hover:underline" onClick={() => go("activity")}>Full log →</button>
+        </div>
+        {db.audit.length === 0 ? <p className="text-sm text-slate-500">No admin actions yet.</p> : (
+          <ul className="space-y-2 text-sm">{db.audit.slice(0, 5).map((a) => <AuditLine key={a.id} entry={a} />)}</ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/* ───────────── Businesses ───────────── */
+
+function Businesses({ action }: { action: Act }) {
+  const { db, setVerification } = useStore();
+  type F = "all" | "pending" | "verified" | "rejected" | "unverified";
+  const [filter, setFilter] = useState<F>("all");
+  const [q, setQ] = useState("");
+  const n = (v: F) => (v === "all" ? db.businesses.length : db.businesses.filter((b) => b.verification === v).length);
+  const rows = db.businesses
+    .filter((b) => filter === "all" || b.verification === filter)
+    .filter((b) => matches(q, b.companyName, b.sector, b.location, b.tradeLicenseNo, db.profiles.find((p) => p.id === b.userId)?.email));
+
+  return (
+    <div className="space-y-4">
+      <Filters value={filter} onChange={setFilter} search={q} onSearch={setQ}
+        options={(["all", "pending", "verified", "rejected", "unverified"] as F[]).map((v) => [v, v[0].toUpperCase() + v.slice(1), n(v)])} />
+      <Table head={["Business", "Owner", "Licence / TIN", "Campaigns", "Status", ""]} empty="No businesses match.">
+        {rows.map((b) => {
+          const owner = db.profiles.find((p) => p.id === b.userId);
+          return (
+            <tr key={b.userId} className="border-t border-slate-100 align-top">
+              <td className="px-3 py-3"><p className="font-semibold">{b.companyName}</p><p className="text-xs text-slate-500">{b.sector} · {b.location} · since {b.foundedYear}</p></td>
+              <td className="px-3 py-3"><p>{owner?.name}</p><p className="text-xs text-slate-500">{owner?.email}</p></td>
+              <td className="px-3 py-3 text-xs"><p>{b.tradeLicenseNo || "—"}</p><p className="text-slate-500">{b.tin || "—"}</p></td>
+              <td className="px-3 py-3">{db.campaigns.filter((c) => c.businessId === b.userId).length}</td>
+              <td className="px-3 py-3"><StatusBadge status={b.verification} />{b.rejectionReason && <p className="mt-1 max-w-48 text-xs text-slate-500">{b.rejectionReason}</p>}</td>
+              <td className="px-3 py-3">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {b.verification !== "verified" && (
+                    <button className="btn-primary" disabled={action.busy} onClick={() => action.act(() => setVerification(b.userId, true), `${b.companyName} verified.`)}>Verify</button>
+                  )}
+                  {b.verification !== "rejected" && (
+                    <ReasonAction label={b.verification === "verified" ? "Revoke" : "Reject"} submitLabel={b.verification === "verified" ? "Revoke verification" : "Send rejection"}
+                      disabled={action.busy} onSubmit={(r) => action.act(() => setVerification(b.userId, false, r), `${b.companyName} is no longer verified.`)} />
+                  )}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+    </div>
+  );
+}
+
+/* ───────────── Campaigns ───────────── */
+
+function Campaigns({ action }: { action: Act }) {
+  const { db, reviewCampaign, closeCampaign } = useStore();
+  type F = "all" | "pending" | "live" | "draft" | "rejected" | "closed";
+  const [filter, setFilter] = useState<F>("all");
+  const [q, setQ] = useState("");
+  const status = (c: (typeof db.campaigns)[number]) => effectiveStatus(c);
+  const n = (v: F) => (v === "all" ? db.campaigns.length : db.campaigns.filter((c) => status(c) === v).length);
+  const rows = db.campaigns
+    .filter((c) => filter === "all" || status(c) === filter)
+    .filter((c) => matches(q, c.title, c.sector, db.businesses.find((b) => b.userId === c.businessId)?.companyName));
+
+  return (
+    <div className="space-y-4">
+      <Filters value={filter} onChange={setFilter} search={q} onSearch={setQ}
+        options={(["all", "pending", "live", "draft", "rejected", "closed"] as F[]).map((v) => [v, v[0].toUpperCase() + v.slice(1), n(v)])} />
+      <Table head={["Campaign", "Type", "Raised / goal", "Deadline", "Status", ""]} empty="No campaigns match.">
+        {rows.map((c) => {
+          const biz = db.businesses.find((b) => b.userId === c.businessId);
+          const st = status(c);
+          return (
+            <tr key={c.id} className="border-t border-slate-100 align-top">
+              <td className="px-3 py-3"><Link to={`/campaigns/${c.id}`} className="font-semibold text-brand-700 hover:underline">{c.title}</Link><p className="text-xs text-slate-500">{biz?.companyName} · {c.sector}</p></td>
+              <td className="px-3 py-3"><TypeBadge type={c.type} /></td>
+              <td className="px-3 py-3 tabular-nums">{formatMoney(raisedFor(db, c.id))}<p className="text-xs text-slate-500">of {formatMoney(c.goal)}</p></td>
+              <td className="px-3 py-3">{formatDate(c.deadline)}</td>
+              <td className="px-3 py-3"><StatusBadge status={st} />{c.rejectionReason && <p className="mt-1 max-w-48 text-xs text-slate-500">{c.rejectionReason}</p>}</td>
+              <td className="px-3 py-3">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {c.status === "pending" && (
+                    <>
+                      <button className="btn-primary" disabled={action.busy || biz?.verification !== "verified"} onClick={() => action.act(() => reviewCampaign(c.id, true), `"${c.title}" is live.`)}>Approve</button>
+                      <ReasonAction label="Reject" submitLabel="Send rejection" disabled={action.busy} onSubmit={(r) => action.act(() => reviewCampaign(c.id, false, r), `"${c.title}" rejected.`)} />
+                    </>
+                  )}
+                  {st === "live" && (
+                    <ReasonAction label="Close" submitLabel="Close campaign" disabled={action.busy} onSubmit={(r) => action.act(() => closeCampaign(c.id, r), `"${c.title}" closed. It no longer accepts pledges.`)} />
+                  )}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+    </div>
+  );
+}
+
+/* ───────────── Users ───────────── */
+
+function Users({ action }: { action: Act }) {
+  const { db, user, setRole } = useStore();
+  type F = "all" | Role;
+  const [filter, setFilter] = useState<F>("all");
+  const [q, setQ] = useState("");
+  const [draft, setDraft] = useState<Record<string, Role>>({});
+  const roleOf = (id: string) => db.roles.find((r) => r.userId === id)?.role;
+  const n = (v: F) => (v === "all" ? db.profiles.length : db.roles.filter((r) => r.role === v).length);
+  const rows = db.profiles
+    .filter((p) => filter === "all" || roleOf(p.id) === filter)
+    .filter((p) => matches(q, p.name, p.email));
+
+  return (
+    <div className="space-y-4">
+      <Filters value={filter} onChange={setFilter} search={q} onSearch={setQ}
+        options={(["all", "investor", "business", "admin"] as F[]).map((v) => [v, v[0].toUpperCase() + v.slice(1) + (v === "all" ? "" : "s"), n(v)])} />
+      <Table head={["Name", "Email", "Activity", "Joined", "Role"]} empty="No users match.">
+        {rows.map((p) => {
+          const current = roleOf(p.id);
+          const picked = draft[p.id] ?? current;
+          const biz = db.businesses.find((b) => b.userId === p.id);
+          const pledged = db.pledges.filter((x) => x.investorId === p.id && x.status === "active").reduce((s, x) => s + x.amount, 0);
+          return (
+            <tr key={p.id} className="border-t border-slate-100 align-top">
+              <td className="px-3 py-3 font-semibold">{p.name || "—"}{p.id === user?.id && <span className="ml-1 text-xs font-normal text-slate-500">(you)</span>}</td>
+              <td className="px-3 py-3">{p.email}</td>
+              <td className="px-3 py-3 text-xs text-slate-600">{biz ? biz.companyName : pledged ? `${formatMoney(pledged)} pledged` : "—"}</td>
+              <td className="px-3 py-3">{formatDate(p.createdAt)}</td>
+              <td className="px-3 py-3">
+                <div className="flex items-center gap-2">
+                  <select className="input w-32 capitalize" aria-label={`Role for ${p.name}`} value={picked} disabled={p.id === user?.id}
+                    onChange={(e) => setDraft({ ...draft, [p.id]: e.target.value as Role })}>
+                    {(["investor", "business", "admin"] as Role[]).map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  {picked !== current && (
+                    <button className="btn-primary" disabled={action.busy} onClick={async () => {
+                      await action.act(() => setRole(p.id, picked!), `${p.name} is now ${picked === "admin" ? "an admin" : `a ${picked}`}.`);
+                      setDraft(({ [p.id]: _, ...rest }) => rest);
+                    }}>Save</button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+      <p className="text-xs text-slate-500">You can't change your own role, so there is always at least one admin.</p>
+    </div>
+  );
+}
+
+/* ───────────── Pledges ───────────── */
+
+function Pledges({ action }: { action: Act }) {
+  const { db, adminCancelPledge } = useStore();
+  type F = "all" | "active" | "cancelled";
+  const [filter, setFilter] = useState<F>("active");
+  const [q, setQ] = useState("");
+  const n = (v: F) => (v === "all" ? db.pledges.length : db.pledges.filter((p) => p.status === v).length);
+  const rows = db.pledges
+    .filter((p) => filter === "all" || p.status === filter)
+    .filter((p) => matches(q, db.profiles.find((x) => x.id === p.investorId)?.name, db.campaigns.find((c) => c.id === p.campaignId)?.title));
+
+  return (
+    <div className="space-y-4">
+      <Filters value={filter} onChange={setFilter} search={q} onSearch={setQ}
+        options={(["active", "cancelled", "all"] as F[]).map((v) => [v, v[0].toUpperCase() + v.slice(1), n(v)])} />
+      <Table head={["Date", "Investor", "Campaign", "Amount", "Status", ""]} empty="No pledges match.">
+        {rows.map((p) => {
+          const inv = db.profiles.find((x) => x.id === p.investorId);
+          const c = db.campaigns.find((x) => x.id === p.campaignId);
+          return (
+            <tr key={p.id} className="border-t border-slate-100 align-top">
+              <td className="px-3 py-3">{formatDate(p.createdAt)}</td>
+              <td className="px-3 py-3">{inv?.name}<p className="text-xs text-slate-500">{inv?.email}</p></td>
+              <td className="px-3 py-3">{c ? <Link to={`/campaigns/${c.id}`} className="text-brand-700 hover:underline">{c.title}</Link> : "—"}</td>
+              <td className="px-3 py-3 font-semibold tabular-nums">{formatMoney(p.amount)}</td>
+              <td className="px-3 py-3"><span className={`badge ${p.status === "active" ? "bg-green-100 text-green-800" : "bg-slate-200 text-slate-700"}`}>{p.status}</span></td>
+              <td className="px-3 py-3 text-right">
+                {p.status === "active" && (
+                  <ReasonAction label="Cancel" submitLabel="Cancel pledge" reasonLabel="Reason (kept in the activity log)" disabled={action.busy}
+                    onSubmit={(r) => action.act(() => adminCancelPledge(p.id, r), `Pledge of ${formatMoney(p.amount)} cancelled.`)} />
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+    </div>
+  );
+}
+
+/* ───────────── Q&A ───────────── */
+
+function Questions({ action }: { action: Act }) {
+  const { db, deleteQuestion } = useStore();
+  const [q, setQ] = useState("");
+  const rows = [...db.questions]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .filter((x) => matches(q, x.text, x.askerName, x.answer?.text, db.campaigns.find((c) => c.id === x.campaignId)?.title));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-600">{db.questions.length} questions · {db.questions.filter((x) => !x.answer).length} unanswered</p>
+        <input className="input sm:w-64" placeholder="Search…" aria-label="Search questions" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      {rows.length === 0 ? <Empty>No questions match.</Empty> : (
+        <ul className="space-y-3">
+          {rows.map((x) => {
+            const c = db.campaigns.find((cc) => cc.id === x.campaignId);
+            return (
+              <li key={x.id} className="card flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 space-y-1 text-sm">
+                  <p className="text-xs text-slate-500"><b className="text-slate-700">{x.askerName}</b> on {c ? <Link to={`/campaigns/${c.id}`} className="text-brand-700 hover:underline">{c.title}</Link> : "a removed campaign"} · {formatDate(x.createdAt)}</p>
+                  <p>{x.text}</p>
+                  {x.answer ? <p className="rounded-lg bg-brand-50 p-2 text-slate-700"><b>Answer:</b> {x.answer.text}</p> : <p className="text-xs italic text-slate-400">Not answered yet</p>}
+                </div>
+                <ReasonAction label="Remove" submitLabel="Remove question" reasonLabel="Reason (kept in the activity log)" disabled={action.busy}
+                  onSubmit={(r) => action.act(() => deleteQuestion(x.id, r), "Question removed.")} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── Settings ───────────── */
+
+function Settings({ action }: { action: Act }) {
+  const { db, updateSettings } = useStore();
+  const [sectors, setSectors] = useState(db.settings.sectors.join("\n"));
+  const [locations, setLocations] = useState(db.settings.locations.join("\n"));
+  const [announcement, setAnnouncement] = useState(db.settings.announcement);
+  const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
+
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    action.act(() => updateSettings({ sectors: lines(sectors), locations: lines(locations), announcement }), "Settings saved. Everyone sees the new values right away.");
+  };
+
+  return (
+    <form onSubmit={save} className="space-y-4">
+      <section className="card space-y-2">
+        <label className="label" htmlFor="announcement">Site announcement</label>
+        <input id="announcement" className="input" maxLength={500} value={announcement} onChange={(e) => setAnnouncement(e.target.value)}
+          placeholder="e.g. New agriculture campaigns open this week" />
+        <p className="text-xs text-slate-500">Shown as a banner at the top of every page. Leave empty to hide it.</p>
+      </section>
+      <div className="grid gap-4 md:grid-cols-2">
+        <section className="card space-y-2">
+          <label className="label" htmlFor="sectors">Sectors ({lines(sectors).length})</label>
+          <textarea id="sectors" className="input min-h-64 font-mono text-xs" value={sectors} onChange={(e) => setSectors(e.target.value)} />
+          <p className="text-xs text-slate-500">One per line. Used for business profiles, campaigns, investor preferences and filters.</p>
+        </section>
+        <section className="card space-y-2">
+          <label className="label" htmlFor="locations">Locations ({lines(locations).length})</label>
+          <textarea id="locations" className="input min-h-64 font-mono text-xs" value={locations} onChange={(e) => setLocations(e.target.value)} />
+          <p className="text-xs text-slate-500">One per line. Removing one doesn't change records that already use it.</p>
+        </section>
+      </div>
+      <button className="btn-primary" disabled={action.busy}>{action.busy ? "Saving…" : "Save settings"}</button>
+    </form>
+  );
+}
+
+/* ───────────── Activity log ───────────── */
+
+const ACTION_LABEL: Record<string, string> = {
+  "business.verify": "Verified business",
+  "business.reject": "Rejected / revoked business",
+  "campaign.approve": "Approved campaign",
+  "campaign.reject": "Rejected campaign",
+  "campaign.close": "Closed campaign",
+  "user.set_role": "Changed role",
+  "pledge.cancel": "Cancelled pledge",
+  "question.delete": "Removed question",
+  "settings.update": "Updated settings",
+};
+
+function useTargetName() {
+  const { db } = useStore();
+  return useMemo(() => (a: AuditEntry) => {
+    switch (a.targetType) {
+      case "business": return db.businesses.find((b) => b.userId === a.targetId)?.companyName ?? "a business";
+      case "campaign": return db.campaigns.find((c) => c.id === a.targetId)?.title ?? "a campaign";
+      case "user": return db.profiles.find((p) => p.id === a.targetId)?.name ?? "a user";
+      case "pledge": {
+        const p = db.pledges.find((x) => x.id === a.targetId);
+        return p ? `${formatMoney(p.amount)} by ${db.profiles.find((x) => x.id === p.investorId)?.name ?? "an investor"}` : "a pledge";
+      }
+      default: return a.targetType === "settings" ? "platform settings" : a.targetType;
+    }
+  }, [db]);
+}
+
+function AuditLine({ entry }: { entry: AuditEntry }) {
+  const { db } = useStore();
+  const target = useTargetName();
+  const who = db.profiles.find((p) => p.id === entry.adminId)?.name ?? "An admin";
+  return (
+    <li className="flex flex-wrap gap-x-2 border-t border-slate-100 pt-2">
+      <span className="text-slate-500">{formatDate(entry.createdAt)}</span>
+      <span><b>{who}</b> · {ACTION_LABEL[entry.action] ?? entry.action}: {target(entry)}</span>
+      {entry.detail && <span className="text-slate-500">({entry.detail})</span>}
+    </li>
+  );
+}
+
+function Activity() {
+  const { db } = useStore();
+  const target = useTargetName();
+  const [q, setQ] = useState("");
+  const rows = db.audit.filter((a) => matches(q, ACTION_LABEL[a.action], a.detail ?? "", target(a), db.profiles.find((p) => p.id === a.adminId)?.name));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-600">Every admin action is recorded by the database and can't be edited.</p>
+        <input className="input sm:w-64" placeholder="Search…" aria-label="Search activity" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      <Table head={["When", "Admin", "Action", "On", "Details"]} empty="No admin actions yet.">
+        {rows.map((a) => (
+          <tr key={a.id} className="border-t border-slate-100 align-top">
+            <td className="whitespace-nowrap px-3 py-3">{formatDate(a.createdAt)} <span className="text-xs text-slate-500">{new Date(a.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span></td>
+            <td className="px-3 py-3">{db.profiles.find((p) => p.id === a.adminId)?.name ?? "—"}</td>
+            <td className="px-3 py-3 font-medium">{ACTION_LABEL[a.action] ?? a.action}</td>
+            <td className="px-3 py-3">{target(a)}</td>
+            <td className="max-w-xs px-3 py-3 text-xs text-slate-600">{a.detail ?? "—"}</td>
+          </tr>
+        ))}
+      </Table>
+    </div>
+  );
+}

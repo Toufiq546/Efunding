@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../lib/store";
-import { CAMPAIGN_TYPES, LOCATIONS, RISKS, SECTORS, type CampaignType, type RewardTier, type Risk } from "../lib/types";
-import { TYPE_LABEL } from "../lib/format";
+import { CAMPAIGN_TYPES, RISKS, type CampaignType, type RewardTier, type Risk } from "../lib/types";
+import { TYPE_LABEL, withCurrent } from "../lib/format";
 import { Empty, ErrorNote, Spinner } from "../components/ui";
 
 const defaultDeadline = () => new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
@@ -20,8 +20,8 @@ export default function CampaignForm() {
     pitch: existing?.pitch ?? "",
     useOfFunds: existing?.useOfFunds ?? "",
     type: (existing?.type ?? "equity") as CampaignType,
-    sector: existing?.sector ?? biz?.sector ?? SECTORS[0],
-    location: existing?.location ?? biz?.location ?? LOCATIONS[0],
+    sector: existing?.sector ?? biz?.sector ?? db.settings.sectors[0],
+    location: existing?.location ?? biz?.location ?? db.settings.locations[0],
     risk: (existing?.risk ?? "medium") as Risk,
     goal: String(existing?.goal ?? ""),
     minInvestment: String(existing?.minInvestment ?? ""),
@@ -94,8 +94,8 @@ export default function CampaignForm() {
         <div><label className="label">Pitch: the problem, your solution, traction</label><textarea className="input min-h-32" value={f.pitch} onChange={set("pitch")} /></div>
         <div><label className="label">Use of funds</label><textarea className="input min-h-20" value={f.useOfFunds} onChange={set("useOfFunds")} /></div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <div><label className="label">Sector</label><select className="input" value={f.sector} onChange={set("sector")}>{SECTORS.map((s) => <option key={s}>{s}</option>)}</select></div>
-          <div><label className="label">Location</label><select className="input" value={f.location} onChange={set("location")}>{LOCATIONS.map((s) => <option key={s}>{s}</option>)}</select></div>
+          <div><label className="label">Sector</label><select className="input" value={f.sector} onChange={set("sector")}>{withCurrent(db.settings.sectors, f.sector).map((s) => <option key={s}>{s}</option>)}</select></div>
+          <div><label className="label">Location</label><select className="input" value={f.location} onChange={set("location")}>{withCurrent(db.settings.locations, f.location).map((s) => <option key={s}>{s}</option>)}</select></div>
           <div><label className="label">Risk level</label><select className="input capitalize" value={f.risk} onChange={set("risk")}>{RISKS.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
         </div>
       </section>

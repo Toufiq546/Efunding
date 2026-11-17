@@ -141,24 +141,38 @@ export function ConfirmButton({
   );
 }
 
-/** Reject button that asks for a reason inline (shown to the business). Replaces window.prompt. */
-export function RejectWithReason({ onReject, disabled, className = "" }: { onReject: (reason: string) => void; disabled?: boolean; className?: string }) {
+/**
+ * Button that asks for a reason inline before acting (the reason is stored and shown to the affected person).
+ * Replaces window.prompt, which the embedded preview blocks.
+ */
+export function ReasonAction({
+  label, submitLabel, onSubmit, disabled, className = "", tone = "danger", reasonLabel = "Reason (shown to the business)",
+}: {
+  label: string; submitLabel: string; onSubmit: (reason: string) => void; disabled?: boolean; className?: string;
+  tone?: "danger" | "secondary"; reasonLabel?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [fieldId] = useState(() => `reason-${Math.random().toString(36).slice(2, 8)}`);
+  const btn = tone === "danger" ? "btn-danger" : "btn-secondary";
   if (!open) {
-    return <button type="button" className={`btn-danger ${className}`} disabled={disabled} onClick={() => setOpen(true)}>Reject</button>;
+    return <button type="button" className={`${btn} ${className}`} disabled={disabled} onClick={() => setOpen(true)}>{label}</button>;
   }
   return (
     <form
       className="flex w-full flex-col gap-2 sm:w-80"
-      onSubmit={(e) => { e.preventDefault(); if (reason.trim()) { onReject(reason.trim()); setOpen(false); setReason(""); } }}
+      onSubmit={(e) => { e.preventDefault(); if (reason.trim()) { onSubmit(reason.trim()); setOpen(false); setReason(""); } }}
     >
-      <label className="label" htmlFor="reject-reason">Reason (shown to the business)</label>
-      <textarea id="reject-reason" className="input min-h-16" autoFocus required value={reason} onChange={(e) => setReason(e.target.value)} />
+      <label className="label" htmlFor={fieldId}>{reasonLabel}</label>
+      <textarea id={fieldId} className="input min-h-16" autoFocus required value={reason} onChange={(e) => setReason(e.target.value)} />
       <div className="flex gap-2">
-        <button className="btn-danger flex-1" disabled={disabled || !reason.trim()}>Send rejection</button>
+        <button className="btn-danger flex-1" disabled={disabled || !reason.trim()}>{submitLabel}</button>
         <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
       </div>
     </form>
   );
+}
+
+export function RejectWithReason({ onReject, disabled, className = "" }: { onReject: (reason: string) => void; disabled?: boolean; className?: string }) {
+  return <ReasonAction label="Reject" submitLabel="Send rejection" onSubmit={onReject} disabled={disabled} className={className} />;
 }

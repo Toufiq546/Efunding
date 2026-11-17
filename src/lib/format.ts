@@ -2,6 +2,9 @@ import type { Campaign, CampaignType, DB } from "./types";
 
 const money = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 
+/** A settings list plus the record's current value, so editing never silently drops a value an admin removed. */
+export const withCurrent = (list: string[], current?: string) => (current && !list.includes(current) ? [current, ...list] : list);
+
 export const formatMoney = (n: number) => `৳${money.format(n)}`;
 
 export const formatDate = (iso: string) =>

@@ -38,6 +38,16 @@ The local backend is throwaway; `npm run local:db` resets it.
 
 ## Rules
 
+- **Every feature ships with its admin control panel section.** The owner manages everything from
+  `src/pages/admin/ControlPanel.tsx` (tabs: Overview, Businesses, Campaigns, Users, Pledges, Q&A, Settings, Activity log).
+  When you add a feature, also add in the same change:
+  1. a tab (or a section in an existing tab) to view and manage its data, with filters/search for lists;
+  2. admin actions as `SECURITY DEFINER` functions in a new migration that check `has_role('admin')` and call
+     `public.admin_log(action, target_type, target_id, detail)`; require a reason for destructive actions;
+  3. the same actions in `src/lib/store.tsx` and `src/lib/demo/demoStore.tsx` (log to `audit` in demo too),
+     a label in `ACTION_LABEL`, and tests in `supabase/tests/rls_test.sql`;
+  4. any admin-tunable value (lists, limits, texts) in `platform_settings` + the Settings tab, not hard-coded.
+
 - Security lives in the database (RLS, guard triggers, `SECURITY DEFINER` RPCs). UI checks only hide controls.
   Any new table gets RLS policies and, if it holds state transitions, a guard trigger or RPC; add tests to `supabase/tests/rls_test.sql`.
 - Never expose `tin`, emails or individual pledges publicly; public pages read the `business_public`, `campaign_stats` and `question_threads` views.
