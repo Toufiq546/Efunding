@@ -26,6 +26,19 @@ Only admin-verified businesses can raise funds. Each campaign picks its own mode
    ```
    Nobody can become an admin from the app; the sign-up trigger only creates investor or business accounts.
 
+## Local preview (no Supabase project needed)
+
+Runs a throwaway Supabase (database, auth, API) in Docker with demo data, plus the app with hot reload:
+
+```bash
+npm install
+npm run local:db    # needs Docker; resets the local data each run
+npm run dev:local   # http://localhost:5173
+```
+
+Demo logins (password `demo1234`): `investor@demo.com`, `business@demo.com`, `admin@demo.com`, `newbiz@demo.com`.
+Sign-ups are confirmed instantly in this mode.
+
 ## What's in it
 
 | Role | Can do |
