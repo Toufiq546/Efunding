@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../lib/store";
-import { CampaignCard, Chips, Empty, ErrorNote, Stat, StatusBadge, TypeBadge } from "../components/ui";
+import { CampaignCard, Chips, ConfirmButton, Empty, ErrorNote, RejectWithReason, Stat, StatusBadge, TypeBadge } from "../components/ui";
 import { CAMPAIGN_TYPES, LOCATIONS, RISKS, SECTORS, type BusinessProfile, type InvestorProfile } from "../lib/types";
 import { TYPE_LABEL, effectiveStatus, formatDate, formatMoney, raisedFor } from "../lib/format";
 import { rankCampaigns } from "../lib/matching";
@@ -49,7 +49,6 @@ function InvestorDashboard() {
   };
 
   const cancel = async (id: string) => {
-    if (!confirm("Cancel this pledge?")) return;
     setErr(await cancelPledge(id));
   };
 
@@ -120,7 +119,7 @@ function InvestorDashboard() {
                       <td><StatusBadge status={st} /></td>
                       <td className="text-right">
                         {st === "live" && (
-                          <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => cancel(p.id)}>Cancel</button>
+                          <ConfirmButton label="Cancel" confirmLabel="Cancel pledge" onConfirm={() => cancel(p.id)} />
                         )}
                       </td>
                     </tr>
@@ -289,10 +288,6 @@ function AdminDashboard() {
   const pendingCampaigns = db.campaigns.filter((c) => c.status === "pending");
   const totalPledged = Object.values(db.stats).reduce((s, x) => s + x.raised, 0);
 
-  const reject = (fn: (reason: string) => Promise<string | null>) => {
-    const r = prompt("Reason for rejection (shown to the business):");
-    if (r?.trim()) act(() => fn(r.trim()));
-  };
 
   return (
     <>
@@ -317,7 +312,7 @@ function AdminDashboard() {
               </div>
               <div className="flex gap-2">
                 <button className="btn-primary" disabled={busy} onClick={() => act(() => setVerification(b.userId, true))}>Verify</button>
-                <button className="btn-danger" disabled={busy} onClick={() => reject((r) => setVerification(b.userId, false, r))}>Reject</button>
+                <RejectWithReason disabled={busy} onReject={(r) => act(() => setVerification(b.userId, false, r))} />
               </div>
             </div>
           );
@@ -336,7 +331,7 @@ function AdminDashboard() {
               </div>
               <div className="flex gap-2">
                 <button className="btn-primary" disabled={busy || biz?.verification !== "verified"} onClick={() => act(() => reviewCampaign(c.id, true))}>Approve</button>
-                <button className="btn-danger" disabled={busy} onClick={() => reject((r) => reviewCampaign(c.id, false, r))}>Reject</button>
+                <RejectWithReason disabled={busy} onReject={(r) => act(() => reviewCampaign(c.id, false, r))} />
               </div>
             </div>
           );

@@ -14,6 +14,7 @@ import Dashboard from "./pages/Dashboard";
 import SetupNotice from "./pages/SetupNotice";
 import { useStore } from "./lib/store";
 import { isConfigured } from "./lib/supabase";
+import { isDemo } from "./lib/mode";
 import type { Role } from "./lib/types";
 
 function RequireRole({ role, children }: { role?: Role; children: ReactNode }) {
@@ -33,7 +34,7 @@ function GuestOnly({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  if (!isConfigured) return <SetupNotice />;
+  if (!isConfigured && !isDemo) return <SetupNotice />;
   return (
     <Routes>
       <Route element={<Layout />}>

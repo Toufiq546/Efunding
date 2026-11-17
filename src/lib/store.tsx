@@ -13,7 +13,7 @@ import type {
 
 type Result = Promise<string | null>;
 
-interface Store {
+export interface Store {
   db: DB;
   user: User | null;
   /** True until the session and first data load have finished. */
@@ -37,7 +37,7 @@ interface Store {
 
 const EMPTY: DB = { profiles: [], roles: [], stats: {}, businesses: [], investors: [], campaigns: [], pledges: [], questions: [] };
 
-const Ctx = createContext<Store | null>(null);
+export const StoreContext = createContext<Store | null>(null);
 
 /* ───────────── row ↔ app mapping ───────────── */
 
@@ -284,11 +284,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     reload,
   }), [db, user, authReady, loadedFor, uid, run, reload]);
 
-  return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
+  return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
 
 export function useStore() {
-  const s = useContext(Ctx);
+  const s = useContext(StoreContext);
   if (!s) throw new Error("useStore must be used inside StoreProvider");
   return s;
 }

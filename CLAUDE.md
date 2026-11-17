@@ -14,13 +14,21 @@ The owner describes changes in chat and watches them appear in a live preview be
      then `npm run dev:local` in the background.
    - The preview is http://localhost:5173. In VS Code, open it beside the chat with
      Command Palette → "Simple Browser: Show" → `http://localhost:5173`. In a cloud session, call `report_preview_port` with 5173.
-2. Make changes; Vite hot-reloads them into the preview within a second or two. Keep the dev server running.
+   - **The owner's main view is the in-chat demo page** https://claude.ai/artifact/Mdd4jL2ZQm6QLvaANq1wjg
+     (their Claude app may not show the port preview). It is the demo build: whole app in the browser on sample data.
+     After every change, run `npm run build:demo` and publish `dist-demo/fundbridge-demo.html` to that URL with the
+     Artifact tool (pass `url`, and read it first in a new conversation) so the page beside the chat updates.
+2. Make changes; Vite hot-reloads them into the dev preview within a second or two. Keep the dev server running.
 3. When a change is done, run `npx tsc -p .` and `npm test`, then commit and push to `main` with a short message describing what changed.
 
 Demo logins for the local Docker backend only (password `demo1234`): `investor@demo.com`, `business@demo.com`, `admin@demo.com`, `newbiz@demo.com` (unverified business).
 The local backend is throwaway; `npm run local:db` resets it.
 
 ## Code layout
+
+- `src/lib/demo/`: demo mode (`npm run build:demo`). `demoStore.tsx` implements the same `Store` interface on sample
+  data and mirrors the database rules; keep it in step when an action or rule changes. `src/lib/mode.ts` has `isDemo`.
+- The embedded page refuses `alert`/`confirm`/`prompt`: use `ConfirmButton` / `RejectWithReason` from `ui.tsx` instead.
 
 - `src/lib/store.tsx`: the only place that talks to Supabase. Pages call its named actions, which return an error message or null.
 - `src/lib/matching.ts`: investor ↔ campaign match score (tests in `matching.test.ts`).

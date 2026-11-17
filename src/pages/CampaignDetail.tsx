@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useStore } from "../lib/store";
-import { MatchBadge, Progress, StatusBadge, TypeBadge, Empty, ErrorNote, Spinner } from "../components/ui";
+import { MatchBadge, Progress, StatusBadge, TypeBadge, Empty, ErrorNote, RejectWithReason, Spinner } from "../components/ui";
 import { backersFor, daysLeft, effectiveStatus, formatDate, formatMoney, raisedFor } from "../lib/format";
 import { scoreMatch } from "../lib/matching";
 
@@ -214,9 +214,9 @@ export default function CampaignDetail() {
             <Link to={`/campaigns/${c.id}/edit`} className="btn-secondary w-full">Edit campaign</Link>
           )}
           {isAdmin && c.status === "pending" && (
-            <div className="flex gap-2 border-t border-slate-100 pt-4">
+            <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
               <button className="btn-primary flex-1" disabled={busy} onClick={() => act(() => store.reviewCampaign(c.id, true))}>Approve</button>
-              <button className="btn-danger flex-1" disabled={busy} onClick={() => { const r = prompt("Reason for rejection?"); if (r?.trim()) act(() => store.reviewCampaign(c.id, false, r.trim())); }}>Reject</button>
+              <RejectWithReason className="flex-1" disabled={busy} onReject={(r) => act(() => store.reviewCampaign(c.id, false, r))} />
             </div>
           )}
         </div>

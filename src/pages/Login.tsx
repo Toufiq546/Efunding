@@ -2,6 +2,14 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { ErrorNote } from "../components/ui";
+import { isDemo } from "../lib/mode";
+
+const DEMO_ACCOUNTS = [
+  ["Investor", "investor@demo.com"],
+  ["Business", "business@demo.com"],
+  ["Admin", "admin@demo.com"],
+  ["Unverified business", "newbiz@demo.com"],
+];
 
 export default function Login() {
   const { signIn } = useStore();
@@ -33,6 +41,16 @@ export default function Login() {
         <input id="password" className="input" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
       <button className="btn-primary w-full" disabled={busy}>{busy ? "Logging in…" : "Log in"}</button>
+      {isDemo && (
+        <div className="space-y-2 border-t border-slate-100 pt-4">
+          <p className="text-sm font-semibold">Try a demo account</p>
+          <div className="flex flex-wrap gap-2">
+            {DEMO_ACCOUNTS.map(([label, em]) => (
+              <button key={em} type="button" className="btn-secondary" onClick={() => { setEmail(em); setPassword("demo1234"); }}>{label}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <p className="text-center text-sm text-slate-600">No account? <Link to="/register" className="font-semibold text-brand-700">Sign up</Link></p>
     </form>
   );

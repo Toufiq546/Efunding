@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useStore } from "../lib/store";
 import type { Campaign } from "../lib/types";
 import { TYPE_LABEL, TYPE_STYLE, backersFor, daysLeft, effectiveStatus, formatMoney, raisedFor, termsSummary } from "../lib/format";
@@ -123,4 +123,42 @@ export function Spinner() {
 export function ErrorNote({ children }: { children: ReactNode }) {
   if (!children) return null;
   return <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700" role="alert">{children}</p>;
+}
+
+/** Two-step button: first click asks "Are you sure?", second click runs the action. Replaces window.confirm. */
+export function ConfirmButton({
+  label, confirmLabel = "Yes, confirm", onConfirm, disabled, className = "text-xs text-red-600 hover:underline",
+}: { label: string; confirmLabel?: string; onConfirm: () => void; disabled?: boolean; className?: string }) {
+  const [asking, setAsking] = useState(false);
+  if (!asking) {
+    return <button type="button" className={className} disabled={disabled} onClick={() => setAsking(true)}>{label}</button>;
+  }
+  return (
+    <span className="inline-flex items-center gap-2 text-xs">
+      <button type="button" className="font-semibold text-red-600 hover:underline" disabled={disabled} onClick={() => { setAsking(false); onConfirm(); }}>{confirmLabel}</button>
+      <button type="button" className="text-slate-500 hover:underline" onClick={() => setAsking(false)}>Keep</button>
+    </span>
+  );
+}
+
+/** Reject button that asks for a reason inline (shown to the business). Replaces window.prompt. */
+export function RejectWithReason({ onReject, disabled, className = "" }: { onReject: (reason: string) => void; disabled?: boolean; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  if (!open) {
+    return <button type="button" className={`btn-danger ${className}`} disabled={disabled} onClick={() => setOpen(true)}>Reject</button>;
+  }
+  return (
+    <form
+      className="flex w-full flex-col gap-2 sm:w-80"
+      onSubmit={(e) => { e.preventDefault(); if (reason.trim()) { onReject(reason.trim()); setOpen(false); setReason(""); } }}
+    >
+      <label className="label" htmlFor="reject-reason">Reason (shown to the business)</label>
+      <textarea id="reject-reason" className="input min-h-16" autoFocus required value={reason} onChange={(e) => setReason(e.target.value)} />
+      <div className="flex gap-2">
+        <button className="btn-danger flex-1" disabled={disabled || !reason.trim()}>Send rejection</button>
+        <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </form>
+  );
 }

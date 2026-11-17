@@ -1,5 +1,8 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useStore } from "../lib/store";
+import { isDemo } from "../lib/mode";
+import { resetDemo } from "../lib/demo/demoStore";
+import { ConfirmButton } from "./ui";
 
 const navCls = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-medium ${isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:text-slate-900"}`;
@@ -10,6 +13,14 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {isDemo && (
+        <div className="bg-amber-100 text-amber-900">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs">
+            <span><b>Demo preview:</b> sample data that stays in this browser. Password for every demo account: <code>demo1234</code></span>
+            <ConfirmButton label="Reset demo data" confirmLabel="Yes, reset" onConfirm={resetDemo} className="font-semibold underline" />
+          </div>
+        </div>
+      )}
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-4 py-3">
           <Link to="/" className="mr-4 flex items-center gap-2 text-lg font-bold text-brand-700">
