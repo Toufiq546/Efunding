@@ -26,6 +26,18 @@ Only admin-verified businesses can raise funds. Each campaign picks its own mode
    ```
    Nobody can become an admin from the app; the sign-up trigger only creates investor or business accounts.
 
+## Go live (real website)
+
+1. Do the **Set up** steps above (Supabase project, all files in `supabase/migrations/` run in order, Auth URLs).
+2. Host the site on **Vercel** or **Netlify** (both have free plans): create a new project from the `efunding` GitHub repo,
+   framework **Vite**, build command `npm run build`, output folder `dist`.
+3. Add two environment variables in the host's settings: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+4. In Supabase → Authentication → URL Configuration, set the Site URL to your new address and add `https://your-address/**`
+   to the Redirect URLs.
+5. Set up your own email sender (Supabase → Authentication → SMTP) before inviting real users.
+
+`vercel.json` and `public/_redirects` make every page address (e.g. `/campaigns/…`) work when opened directly.
+
 ## Local preview (no Supabase project needed)
 
 Runs a throwaway Supabase (database, auth, API) in Docker with demo data, plus the app with hot reload:

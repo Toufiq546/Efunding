@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { CampaignCard } from "../components/ui";
-import { effectiveStatus, formatMoney, raisedFor } from "../lib/format";
+import { effectiveStatus, raisedFor, formatMoneyShort } from "../lib/format";
 
 export default function Home() {
   const { db, user } = useStore();
   const live = db.campaigns.filter((c) => effectiveStatus(c) === "live");
+  const fundedList = db.campaigns.filter((c) => c.fundedOn).sort((a, b) => (b.fundedOn ?? "").localeCompare(a.fundedOn ?? ""));
   const totalPledged = Object.values(db.stats).reduce((s, x) => s + x.raised, 0);
   const funded = db.campaigns.filter((c) => raisedFor(db, c.id) >= c.goal).length;
 
@@ -33,9 +34,9 @@ export default function Home() {
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <div className="card text-center"><p className="text-2xl font-bold text-brand-700">{live.length}</p><p className="text-xs text-slate-500">Live campaigns</p></div>
-          <div className="card text-center"><p className="text-2xl font-bold text-brand-700">{formatMoney(totalPledged)}</p><p className="text-xs text-slate-500">Pledged</p></div>
-          <div className="card text-center"><p className="text-2xl font-bold text-brand-700">{funded}</p><p className="text-xs text-slate-500">Fully funded</p></div>
+          <div className="card p-3 text-center sm:p-5"><p className="break-words text-lg font-bold text-brand-700 sm:text-2xl">{live.length}</p><p className="text-xs text-slate-500">Live campaigns</p></div>
+          <div className="card p-3 text-center sm:p-5"><p className="break-words text-lg font-bold text-brand-700 sm:text-2xl">{formatMoneyShort(totalPledged)}</p><p className="text-xs text-slate-500">Pledged</p></div>
+          <div className="card p-3 text-center sm:p-5"><p className="break-words text-lg font-bold text-brand-700 sm:text-2xl">{funded}</p><p className="text-xs text-slate-500">Fully funded</p></div>
         </div>
       </section>
 
@@ -47,7 +48,12 @@ export default function Home() {
             <li>Our team verifies the business.</li>
             <li>Create a campaign: pick equity, debt or reward, then set your goal and terms.</li>
             <li>After admin approval it goes live, and you answer investors' questions.</li>
+            <li>Once funded, post updates to keep your commitments.</li>
           </ol>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Link to={user ? "/dashboard" : "/register?role=business"} className="btn-primary">{user?.role === "business" ? "Go to your dashboard" : "Raise funds"}</Link>
+            <Link to="/help?for=business" className="text-sm font-semibold text-brand-700 hover:underline">Read the business guide →</Link>
+          </div>
         </div>
         <div className="card space-y-3">
           <h2 className="text-lg font-bold">For investors</h2>
@@ -55,8 +61,12 @@ export default function Home() {
             <li>Tell us your sectors, ticket size, risk appetite and preferred deal types.</li>
             <li>See verified campaigns ranked by match score, with the reasons behind each score.</li>
             <li>Ask the founders questions before you commit.</li>
-            <li>Pledge an amount and track your portfolio.</li>
+            <li>Pledge an amount, then follow each business's commitments and updates.</li>
           </ol>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Link to={user ? "/campaigns" : "/register?role=investor"} className="btn-primary">{user ? "Browse campaigns" : "Start investing"}</Link>
+            <Link to="/help?for=investor" className="text-sm font-semibold text-brand-700 hover:underline">Read the investor guide →</Link>
+          </div>
         </div>
       </section>
 
@@ -69,6 +79,21 @@ export default function Home() {
           {live.slice(0, 3).map((c) => <CampaignCard key={c.id} campaign={c} />)}
         </div>
       </section>
+
+      {fundedList.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-end justify-between">
+            <div>
+              <h2 className="text-2xl font-bold">Recently funded</h2>
+              <p className="text-sm text-slate-600">See how each business is keeping its commitments.</p>
+            </div>
+            <Link to="/campaigns?view=funded" className="text-sm font-semibold text-brand-700 hover:underline">See all →</Link>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {fundedList.slice(0, 3).map((c) => <CampaignCard key={c.id} campaign={c} />)}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

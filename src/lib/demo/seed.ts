@@ -38,10 +38,10 @@ function baseSeed(): DemoData {
     profiles: people.map(([id, email, name], i) => ({ id, email, name, createdAt: ago(60 - i * 5) })),
     roles: people.map(([userId, , , role]) => ({ userId, role })),
     businesses: [
-      { userId: "u-biz1", companyName: "GreenHarvest Agro Ltd.", sector: "Agriculture", location: "Rajshahi", foundedYear: 2019, tradeLicenseNo: "TRAD/RAJ/2019/04512", tin: "123456789012", website: "https://greenharvest.example", description: "Contract farming and cold-chain distribution of mangoes and vegetables to Dhaka supermarkets.", verification: "verified" },
-      { userId: "u-biz2", companyName: "SunRoof Energy", sector: "Renewable Energy", location: "Dhaka", foundedYear: 2021, tradeLicenseNo: "TRAD/DSCC/2021/88231", tin: "234567890123", website: "https://sunroof.example", description: "Rooftop solar installation for SMEs and factories on a pay-as-you-save model.", verification: "verified" },
+      { userId: "u-biz1", companyName: "GreenHarvest Agro Ltd.", sector: "Agriculture", location: "Rajshahi", foundedYear: 2019, tradeLicenseNo: "TRAD/RAJ/2019/04512", tin: "123456789012", website: "", description: "Contract farming and cold-chain distribution of mangoes and vegetables to Dhaka supermarkets.", verification: "verified" },
+      { userId: "u-biz2", companyName: "SunRoof Energy", sector: "Renewable Energy", location: "Dhaka", foundedYear: 2021, tradeLicenseNo: "TRAD/DSCC/2021/88231", tin: "234567890123", website: "", description: "Rooftop solar installation for SMEs and factories on a pay-as-you-save model.", verification: "verified" },
       { userId: "u-biz3", companyName: "Loomcraft Textiles", sector: "Textiles & Garments", location: "Chattogram", foundedYear: 2016, tradeLicenseNo: "TRAD/CCC/2016/11204", tin: "345678901234", website: "", description: "Handloom and jamdani products sold online and exported to boutique retailers.", verification: "verified" },
-      { userId: "u-biz4", companyName: "QuickCart BD", sector: "Retail & E-commerce", location: "Sylhet", foundedYear: 2024, tradeLicenseNo: "TRAD/SCC/2024/00911", tin: "456789012345", website: "https://quickcart.example", description: "15-minute grocery delivery in Sylhet city.", verification: "pending" },
+      { userId: "u-biz4", companyName: "QuickCart BD", sector: "Retail & E-commerce", location: "Sylhet", foundedYear: 2024, tradeLicenseNo: "TRAD/SCC/2024/00911", tin: "456789012345", website: "", description: "15-minute grocery delivery in Sylhet city.", verification: "pending" },
     ],
     investors: [
       { userId: "u-inv1", sectors: ["Agriculture", "Renewable Energy"], locations: [], types: ["equity", "debt"], minTicket: 10000, maxTicket: 500000, risk: "medium" },

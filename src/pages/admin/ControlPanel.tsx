@@ -149,7 +149,7 @@ function Overview({ action, go }: { action: Act; go: (t: Tab) => void }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <Stat label="Investors" value={count("investor")} />
         <Stat label="Businesses" value={`${db.businesses.filter((b) => b.verification === "verified").length} verified / ${db.businesses.length}`} />
         <Stat label="Live campaigns" value={`${live.length} (${funded} funded)`} />

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { MatchBadge, Progress, StatusBadge, TypeBadge, Empty, ErrorNote, RejectWithReason, Spinner } from "../components/ui";
-import { backersFor, daysLeft, effectiveStatus, formatDate, formatMoney, raisedFor } from "../lib/format";
+import { backersFor, daysLeft, effectiveStatus, formatDate, formatMoney, isWebUrl, raisedFor } from "../lib/format";
 import { scoreMatch } from "../lib/matching";
 import { ComplianceSummary, ObligationTimeline, PostUpdateForm, UpdateCard } from "../components/tracking/Tracking";
 import { AccountsSection, BusinessSection, CheckedBadge, CommitmentsSection, PlanSection } from "../components/project/ProjectSections";
@@ -315,7 +315,7 @@ export default function CampaignDetail() {
               <div><dt className="text-slate-500">Location</dt><dd>{biz.location}</dd></div>
               <div><dt className="text-slate-500">Founded</dt><dd>{biz.foundedYear}</dd></div>
               <div><dt className="text-slate-500">Trade licence</dt><dd>{biz.tradeLicenseNo}</dd></div>
-              {biz.website && <div><dt className="text-slate-500">Website</dt><dd><a href={biz.website} target="_blank" rel="noreferrer" className="text-brand-700 underline">Visit</a></dd></div>}
+              {isWebUrl(biz.website) && <div><dt className="text-slate-500">Website</dt><dd><a href={biz.website.trim()} target="_blank" rel="noopener noreferrer" className="text-brand-700 underline">Visit website ↗</a></dd></div>}
             </dl>
           </div>
         )}

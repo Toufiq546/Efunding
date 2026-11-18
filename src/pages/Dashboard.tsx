@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { CampaignCard, Chips, ConfirmButton, Empty, ErrorNote, Stat, StatusBadge, TypeBadge } from "../components/ui";
 import { CAMPAIGN_TYPES, RISKS, type BusinessProfile, type InvestorProfile } from "../lib/types";
-import { TYPE_LABEL, effectiveStatus, formatDate, formatMoney, raisedFor, withCurrent } from "../lib/format";
+import { TYPE_LABEL, effectiveStatus, formatDate, formatMoney, isWebUrl, raisedFor, withCurrent } from "../lib/format";
 import { rankCampaigns } from "../lib/matching";
 import ControlPanel from "./admin/ControlPanel";
 import { HelpLink } from "../components/help/Markdown";
@@ -60,7 +60,7 @@ function InvestorDashboard() {
   return (
     <>
       <ErrorNote>{err}</ErrorNote>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         <Stat label="Total pledged" value={formatMoney(total)} />
         <Stat label="Campaigns backed" value={new Set(pledges.map((p) => p.campaignId)).size} />
         <Stat label="Strong matches (75%+)" value={rankCampaigns(live, saved).filter((m) => m.match.score >= 75).length} />
@@ -169,6 +169,7 @@ function BusinessDashboard() {
   const save = (submit: boolean) => async (e?: FormEvent) => {
     e?.preventDefault();
     if (!p.companyName.trim()) return setErr("Company name is required.");
+    if (p.website.trim() && !isWebUrl(p.website)) return setErr("Enter the full website address, starting with https:// (or leave it empty).");
     if (submit && (!p.tradeLicenseNo.trim() || !p.tin.trim())) {
       return setErr("Trade licence number and TIN are required for verification.");
     }
@@ -181,7 +182,7 @@ function BusinessDashboard() {
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
         <Stat label="Verification" value={<StatusBadge status={verification} />} />
         <Stat label="Total pledged" value={formatMoney(pledges.reduce((s, x) => s + x.amount, 0))} />
         <Stat label="Investors" value={new Set(pledges.map((x) => x.investorId)).size} />
