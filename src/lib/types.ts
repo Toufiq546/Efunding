@@ -106,6 +106,8 @@ export interface Campaign {
   status: CampaignStatus;
   rejectionReason?: string;
   createdAt: string;
+  /** Set when an admin marks the campaign funded; commitment tracking starts here. */
+  fundedOn?: string;
 }
 
 export interface Pledge {
@@ -150,12 +152,51 @@ export interface PlatformSettings {
   minReporting: Reporting;
   /** Years of past results required before submitting. */
   minAccountYears: number;
+  /** How long commitments are tracked after funding (months). */
+  trackingMonths: number;
+  /** Warn this many days before a commitment is due. */
+  dueSoonDays: number;
+  /** Reward campaigns: delivery due this many months after funding. */
+  deliveryMonths: number;
 }
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   sectors: [...SECTORS], locations: [...LOCATIONS], announcement: "",
   commitmentOptions: [...DEFAULT_COMMITMENTS], minReporting: "quarterly", minAccountYears: 2,
+  trackingMonths: 24, dueSoonDays: 14, deliveryMonths: 3,
 };
+
+/* ───────────── Commitment tracking (obligations / campaign_updates) ───────────── */
+
+export type ObligationKind = "update" | "accounts" | "repayment" | "milestone" | "delivery";
+
+/** A dated promise generated when a campaign is funded. Public. */
+export interface Obligation {
+  id: string;
+  campaignId: string;
+  kind: ObligationKind;
+  title: string;
+  dueOn: string; // YYYY-MM-DD
+  amount?: number;
+  status: "open" | "done" | "waived";
+  completedAt?: string;
+  updateId?: string;
+  /** Admin's reason for a reschedule or waiver. */
+  note?: string;
+}
+
+/** A progress report posted by the business. Visible to backers, the business and admins. */
+export interface CampaignUpdate {
+  id: string;
+  campaignId: string;
+  obligationId?: string;
+  title: string;
+  body: string;
+  amount?: number;
+  sales?: number;
+  spent?: number;
+  createdAt: string;
+}
 
 /* ───────────── Project page (campaign_projects / campaign_financials / campaign_documents) ───────────── */
 
@@ -266,6 +307,9 @@ export interface DB {
   /** Headline account figures by campaign id (public). */
   financialSummary: Record<string, FinancialSummary>;
   documents: CampaignDocument[];
+  obligations: Obligation[];
+  /** Only the updates the viewer may read. */
+  updates: CampaignUpdate[];
   businesses: BusinessProfile[];
   investors: InvestorProfile[];
   campaigns: Campaign[];

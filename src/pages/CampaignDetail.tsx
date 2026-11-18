@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { MatchBadge, Progress, StatusBadge, TypeBadge, Empty, ErrorNote, RejectWithReason, Spinner } from "../components/ui";
 import { backersFor, daysLeft, effectiveStatus, formatDate, formatMoney, raisedFor } from "../lib/format";
 import { scoreMatch } from "../lib/matching";
+import { ComplianceSummary, ObligationTimeline, PostUpdateForm, UpdateCard } from "../components/tracking/Tracking";
 import { AccountsSection, BusinessSection, CheckedBadge, CommitmentsSection, PlanSection } from "../components/project/ProjectSections";
 
-type Tab = "overview" | "business" | "accounts" | "plan" | "commitments" | "qa";
+type Tab = "overview" | "progress" | "business" | "accounts" | "plan" | "commitments" | "qa";
 
 export default function CampaignDetail() {
   const { id } = useParams();
@@ -20,7 +21,9 @@ export default function CampaignDetail() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [params] = useSearchParams();
+  // Links can open a tab directly, e.g. /campaigns/:id?tab=progress
+  const [tab, setTab] = useState<Tab>(() => (params.get("tab") as Tab) || "overview");
 
   if (store.loading) return <Spinner />;
 
@@ -35,6 +38,9 @@ export default function CampaignDetail() {
 
   const biz = db.businesses.find((b) => b.userId === c.businessId);
   const project = db.projects[c.id];
+  const obligations = db.obligations.filter((o) => o.campaignId === c.id);
+  const updates = db.updates.filter((u) => u.campaignId === c.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const isBacker = db.pledges.some((p) => p.campaignId === c.id && p.investorId === user?.id && p.status === "active");
   const raised = raisedFor(db, c.id);
   const left = daysLeft(c.deadline);
   const pref = user?.role === "investor" ? db.investors.find((i) => i.userId === user.id) : undefined;
@@ -98,7 +104,7 @@ export default function CampaignDetail() {
 
         <nav className="-mx-1 flex gap-1 overflow-x-auto border-b border-slate-200 px-1" aria-label="Campaign sections">
           {([
-            ["overview", "Overview"], ["business", "Business"], ["accounts", "Accounts"], ["plan", "Plan"],
+            ["overview", "Overview"], ...(c.fundedOn ? [["progress", "Progress"]] : []), ["business", "Business"], ["accounts", "Accounts"], ["plan", "Plan"],
             ["commitments", "Commitments"], ["qa", `Q&A (${questions.length})`],
           ] as [Tab, string][]).map(([t, label]) => (
             <button key={t} type="button" onClick={() => setTab(t)} aria-current={tab === t ? "page" : undefined}
@@ -170,6 +176,25 @@ export default function CampaignDetail() {
         </section>
         </>)}
 
+        {tab === "progress" && c.fundedOn && (
+          <section className="card space-y-5">
+            <div>
+              <h2 className="text-lg font-bold">Keeping our commitments</h2>
+              <p className="text-sm text-slate-600">Funded on {formatDate(c.fundedOn)}. Every promise below has a due date, and its status is public.</p>
+            </div>
+            <ComplianceSummary list={obligations} />
+            <ObligationTimeline list={obligations} updates={updates} limit={8} />
+            <div className="space-y-3">
+              <h3 className="font-semibold">Updates from {biz?.companyName ?? "the business"}</h3>
+              {isOwner && <PostUpdateForm c={c} />}
+              {updates.length > 0
+                ? updates.map((u) => <UpdateCard key={u.id} u={u} />)
+                : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                    {isOwner || isAdmin || isBacker ? "No updates posted yet." : "Updates are shared with this campaign's backers. The commitment list above is public."}
+                  </p>}
+            </div>
+          </section>
+        )}
         {tab === "business" && <section className="card"><BusinessSection project={project} /></section>}
         {tab === "accounts" && (
           <section className="card">
@@ -236,6 +261,12 @@ export default function CampaignDetail() {
             <div><p className="font-bold">{Math.max(0, left)}</p><p className="text-xs text-slate-500">days left</p></div>
           </div>
           <p className="text-xs text-slate-500">Minimum pledge {formatMoney(c.minInvestment)} · Closes {formatDate(c.deadline)}</p>
+          {c.fundedOn && (
+            <button type="button" onClick={() => setTab("progress")}
+              className="w-full rounded-lg bg-green-50 p-3 text-left text-sm text-green-800 hover:bg-green-100">
+              <b>Funded on {formatDate(c.fundedOn)}.</b> See how the business is keeping its commitments →
+            </button>
+          )}
 
           {canPledge && (
             <form onSubmit={submitPledge} className="space-y-3 border-t border-slate-100 pt-4">

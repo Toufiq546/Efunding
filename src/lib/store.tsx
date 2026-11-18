@@ -4,9 +4,19 @@ import { isConfigured, supabase } from "./supabase";
 import { DEFAULT_MIME_ERROR, docPath, validateDocument } from "./documents";
 import { DEFAULT_SETTINGS } from "./types";
 import type {
-  BusinessProfile, Campaign, CampaignDocument, DB, DocKind, Financials, FinancialSummary, InvestorProfile, PlatformSettings,
-  Pledge, Project, Question, Reporting, Role, User,
+  BusinessProfile, Campaign, CampaignDocument, CampaignUpdate, DB, DocKind, Financials, FinancialSummary, InvestorProfile,
+  Obligation, PlatformSettings, Pledge, Project, Question, Reporting, Role, User,
 } from "./types";
+
+export interface UpdateInput {
+  campaignId: string;
+  obligationId?: string;
+  title: string;
+  body: string;
+  amount?: number;
+  sales?: number;
+  spent?: number;
+}
 
 /**
  * Data layer backed by Supabase. `db` holds everything the signed-in user (or an anonymous visitor)
@@ -47,6 +57,13 @@ export interface Store {
   updateSettings(s: Pick<PlatformSettings, "sectors" | "locations" | "announcement">): Result;
   updateProjectSettings(commitments: string[], minReporting: Reporting, minAccountYears: number): Result;
   checkFinancials(campaignId: string, checked: boolean, note?: string): Result;
+
+  /* Commitment tracking */
+  postUpdate(u: UpdateInput): Result;
+  markFunded(campaignId: string, fundedOn: string): Result;
+  setObligation(id: string, action: "reschedule" | "waive" | "reopen", dueOn: string | null, reason: string): Result;
+  removeUpdate(id: string, reason: string): Result;
+  updateTrackingSettings(trackingMonths: number, dueSoonDays: number, deliveryMonths: number): Result;
   setRole(userId: string, role: Role): Result;
   closeCampaign(id: string, reason: string): Result;
   adminCancelPledge(id: string, reason: string): Result;
@@ -57,6 +74,7 @@ export interface Store {
 const EMPTY: DB = {
   profiles: [], roles: [], stats: {}, businesses: [], investors: [], campaigns: [], pledges: [], questions: [],
   settings: DEFAULT_SETTINGS, audit: [], projects: {}, financials: {}, financialSummary: {}, documents: [],
+  obligations: [], updates: [],
 };
 
 export const StoreContext = createContext<Store | null>(null);
@@ -77,7 +95,7 @@ const toCampaign = (r: Row): Campaign => ({
   id: r.id, businessId: r.business_id, title: r.title, summary: r.summary, pitch: r.pitch, useOfFunds: r.use_of_funds,
   type: r.type, sector: r.sector, location: r.location, risk: r.risk, goal: Number(r.goal),
   minInvestment: Number(r.min_investment), deadline: r.deadline, status: r.status,
-  rejectionReason: r.rejection_reason ?? undefined, createdAt: r.created_at,
+  rejectionReason: r.rejection_reason ?? undefined, createdAt: r.created_at, fundedOn: r.funded_on ?? undefined,
   terms: {
     equityPercent: num(r.equity_percent), valuation: num(r.valuation),
     interestRate: num(r.interest_rate), tenorMonths: num(r.tenor_months), rewards: r.rewards ?? [],
@@ -117,6 +135,16 @@ const toSummary = (r: Row): FinancialSummary => ({
 
 const toDocument = (r: Row): CampaignDocument => ({
   id: r.id, campaignId: r.campaign_id, kind: r.kind, title: r.title, path: r.path, sizeBytes: r.size_bytes, mime: r.mime, createdAt: r.created_at,
+});
+
+const toObligation = (r: Row): Obligation => ({
+  id: r.id, campaignId: r.campaign_id, kind: r.kind, title: r.title, dueOn: r.due_on, amount: num(r.amount),
+  status: r.status, completedAt: r.completed_at ?? undefined, updateId: r.update_id ?? undefined, note: r.note ?? undefined,
+});
+
+const toUpdate = (r: Row): CampaignUpdate => ({
+  id: r.id, campaignId: r.campaign_id, obligationId: r.obligation_id ?? undefined, title: r.title, body: r.body,
+  amount: num(r.amount), sales: num(r.sales), spent: num(r.spent), createdAt: r.created_at,
 });
 
 const toInvestor = (r: Row): InvestorProfile => ({
@@ -176,7 +204,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     if (!isConfigured) return;
-    const [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents] = await Promise.all([
+    const [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents, obligations, updates] = await Promise.all([
       supabase.from("campaigns").select("*").order("created_at", { ascending: false }),
       supabase.from("campaign_stats").select("*"),
       supabase.from("business_public").select("*"),
@@ -194,8 +222,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       uid ? supabase.from("campaign_financials").select("*") : null,
       supabase.from("campaign_financial_summary").select("*"),
       uid ? supabase.from("campaign_documents").select("*").order("created_at") : null,
+      supabase.from("obligations").select("*").order("due_on"),
+      // Backers, the business and admins only (RLS).
+      uid ? supabase.from("campaign_updates").select("*").order("created_at", { ascending: false }) : null,
     ]);
-    const firstError = [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents]
+    const firstError = [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents, obligations, updates]
       .find((r) => r?.error)?.error;
     if (firstError) console.error("Load failed:", firstError.message);
 
@@ -219,12 +250,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             commitmentOptions: settings.data.commitment_options ?? DEFAULT_SETTINGS.commitmentOptions,
             minReporting: settings.data.min_reporting ?? DEFAULT_SETTINGS.minReporting,
             minAccountYears: settings.data.min_account_years ?? DEFAULT_SETTINGS.minAccountYears,
+            trackingMonths: settings.data.tracking_months ?? DEFAULT_SETTINGS.trackingMonths,
+            dueSoonDays: settings.data.due_soon_days ?? DEFAULT_SETTINGS.dueSoonDays,
+            deliveryMonths: settings.data.delivery_months ?? DEFAULT_SETTINGS.deliveryMonths,
           }
         : DEFAULT_SETTINGS,
       projects: Object.fromEntries((projects.data ?? []).map((r) => [r.campaign_id, toProject(r)])),
       financials: Object.fromEntries((financials?.data ?? []).map((r) => [r.campaign_id, toFinancials(r)])),
       financialSummary: Object.fromEntries((summary.data ?? []).map((r) => [r.campaign_id, toSummary(r)])),
       documents: (documents?.data ?? []).map(toDocument),
+      obligations: (obligations.data ?? []).map(toObligation),
+      updates: (updates?.data ?? []).map(toUpdate),
       audit: (audit?.data ?? []).map((r) => ({
         id: String(r.id), adminId: r.admin_id, action: r.action, targetType: r.target_type,
         targetId: r.target_id, detail: r.detail, createdAt: r.created_at,
@@ -411,6 +447,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     checkFinancials(campaignId, checked, note) {
       return run(() => supabase.rpc("admin_check_financials", { _campaign_id: campaignId, _checked: checked, _note: note ?? null }));
+    },
+
+    postUpdate(u) {
+      return run(() => supabase.rpc("post_campaign_update", {
+        _campaign_id: u.campaignId, _obligation_id: u.obligationId ?? null, _title: u.title, _body: u.body,
+        _amount: u.amount ?? null, _sales: u.sales ?? null, _spent: u.spent ?? null,
+      }));
+    },
+    markFunded(campaignId, fundedOn) {
+      return run(() => supabase.rpc("admin_mark_funded", { _campaign_id: campaignId, _funded_on: fundedOn }));
+    },
+    setObligation(id, action, dueOn, reason) {
+      return run(() => supabase.rpc("admin_set_obligation", { _obligation_id: id, _action: action, _due_on: dueOn, _reason: reason }));
+    },
+    removeUpdate(id, reason) {
+      return run(() => supabase.rpc("admin_remove_update", { _update_id: id, _reason: reason }));
+    },
+    updateTrackingSettings(trackingMonths, dueSoonDays, deliveryMonths) {
+      return run(() => supabase.rpc("admin_update_tracking_settings", { _tracking_months: trackingMonths, _due_soon_days: dueSoonDays, _delivery_months: deliveryMonths }));
     },
 
     updateSettings(s) {

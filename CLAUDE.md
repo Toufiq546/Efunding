@@ -35,6 +35,10 @@ The local backend is throwaway; `npm run local:db` resets it.
   campaign page via `src/components/project/ProjectSections.tsx`. `src/lib/project.ts` `submitProblems()` mirrors the
   database's `campaign_submit_problems()`: change both together. Full accounts and documents are for logged-in users;
   visitors get `campaign_financial_summary`.
+- **Commitment tracking** (`obligations`, `campaign_updates`): admin "Mark funded" (`admin_mark_funded`) closes a fully
+  funded campaign and generates dated obligations; `src/lib/tracking.ts` `generateObligations()` mirrors it (keep both
+  in step). Businesses complete obligations with `post_campaign_update`. Obligations are public; updates are for backers,
+  the business and admins. UI pieces in `src/components/tracking/Tracking.tsx`.
 - `src/lib/store.tsx`: the only place that talks to Supabase. Pages call its named actions, which return an error message or null.
 - `src/lib/matching.ts`: investor ↔ campaign match score (tests in `matching.test.ts`).
 - `src/pages/*`: routes. `src/components/ui.tsx`: shared UI pieces.
@@ -44,7 +48,7 @@ The local backend is throwaway; `npm run local:db` resets it.
 ## Rules
 
 - **Every feature ships with its admin control panel section.** The owner manages everything from
-  `src/pages/admin/ControlPanel.tsx` (tabs: Overview, Businesses, Campaigns, Users, Pledges, Q&A, Settings, Activity log).
+  `src/pages/admin/ControlPanel.tsx` (tabs: Overview, Businesses, Campaigns, Users, Pledges, Tracking, Q&A, Settings, Activity log).
   When you add a feature, also add in the same change:
   1. a tab (or a section in an existing tab) to view and manage its data, with filters/search for lists;
   2. admin actions as `SECURITY DEFINER` functions in a new migration that check `has_role('admin')` and call

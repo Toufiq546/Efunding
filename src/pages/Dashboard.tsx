@@ -6,6 +6,9 @@ import { CAMPAIGN_TYPES, RISKS, type BusinessProfile, type InvestorProfile } fro
 import { TYPE_LABEL, effectiveStatus, formatDate, formatMoney, raisedFor, withCurrent } from "../lib/format";
 import { rankCampaigns } from "../lib/matching";
 import ControlPanel from "./admin/ControlPanel";
+import { ComplianceSummary, KIND_LABEL, PostUpdateForm, StateBadge, UpdateCard } from "../components/tracking/Tracking";
+import { obligationState } from "../lib/tracking";
+import type { Campaign } from "../lib/types";
 
 export default function Dashboard() {
   const { user } = useStore();
@@ -62,6 +65,7 @@ function InvestorDashboard() {
         <Stat label="Strong matches (75%+)" value={rankCampaigns(live, saved).filter((m) => m.match.score >= 75).length} />
       </div>
 
+      <FromInvestments />
       <section className="space-y-3">
         <div className="flex items-end justify-between">
           <h2 className="text-xl font-bold">Your top matches</h2>
@@ -227,6 +231,7 @@ function BusinessDashboard() {
         )}
       </section>
 
+      <CommitmentsToKeep campaigns={campaigns.filter((c) => c.fundedOn)} />
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold">Your campaigns</h2>
@@ -271,5 +276,82 @@ function BusinessDashboard() {
         </section>
       )}
     </>
+  );
+}
+
+/* ───────────────────────── Commitment tracking on dashboards ───────────────────────── */
+
+/** Business: what's overdue or due soon on funded campaigns, with a form to post the update. */
+function CommitmentsToKeep({ campaigns }: { campaigns: Campaign[] }) {
+  const { db } = useStore();
+  const [posting, setPosting] = useState<string | null>(null);
+  if (campaigns.length === 0) return null;
+  return (
+    <section className="card space-y-5">
+      <div>
+        <h2 className="text-xl font-bold">Commitments to keep</h2>
+        <p className="text-sm text-slate-600">Investors and FundBridge see whether each promise is kept on time. Post an update to complete a commitment.</p>
+      </div>
+      {campaigns.map((c) => {
+        const list = db.obligations.filter((o) => o.campaignId === c.id);
+        const attention = list
+          .filter((o) => ["overdue", "due-soon"].includes(obligationState(o, db.settings.dueSoonDays)))
+          .sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+        const next = list.filter((o) => obligationState(o, db.settings.dueSoonDays) === "upcoming").sort((a, b) => a.dueOn.localeCompare(b.dueOn))[0];
+        return (
+          <div key={c.id} className="space-y-3 border-t border-slate-100 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Link to={`/campaigns/${c.id}?tab=progress`} className="font-semibold text-brand-700 hover:underline">{c.title}</Link>
+              <span className="text-xs text-slate-500">Funded {formatDate(c.fundedOn!)}</span>
+            </div>
+            <ComplianceSummary list={list} />
+            {attention.length === 0 && <p className="text-sm text-slate-600">Nothing overdue or due soon.{next && <> Next: <b>{next.title}</b> on {formatDate(next.dueOn)}.</>}</p>}
+            <ul className="space-y-2">
+              {attention.map((o) => (
+                <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                  <span><b>{o.title}</b> <span className="text-xs text-slate-500">· {KIND_LABEL[o.kind]} · due {formatDate(o.dueOn)}</span></span>
+                  <span className="flex items-center gap-2">
+                    <StateBadge o={o} />
+                    <button type="button" className="btn-secondary" onClick={() => setPosting(posting === o.id ? null : o.id)}>Post update</button>
+                  </span>
+                  {posting === o.id && <div className="w-full"><PostUpdateForm c={c} preselect={o.id} onDone={() => setPosting(null)} /></div>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/** Investor: overdue commitments and the latest updates from campaigns they back. */
+function FromInvestments() {
+  const { db, user } = useStore();
+  const backed = new Set(db.pledges.filter((p) => p.investorId === user?.id && p.status === "active").map((p) => p.campaignId));
+  const funded = db.campaigns.filter((c) => backed.has(c.id) && c.fundedOn);
+  if (funded.length === 0) return null;
+  const overdue = db.obligations.filter((o) => backed.has(o.campaignId) && obligationState(o, db.settings.dueSoonDays) === "overdue");
+  const updates = db.updates.filter((u) => backed.has(u.campaignId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 3);
+  return (
+    <section className="card space-y-4">
+      <h2 className="text-xl font-bold">From your investments</h2>
+      {overdue.length > 0 && (
+        <ul className="space-y-2">
+          {overdue.map((o) => {
+            const c = db.campaigns.find((x) => x.id === o.campaignId);
+            return (
+              <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+                <span><b>Overdue:</b> {o.title} for {c?.title} (due {formatDate(o.dueOn)})</span>
+                <Link to={`/campaigns/${o.campaignId}?tab=progress`} className="font-semibold underline">View progress</Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {updates.length === 0 ? <p className="text-sm text-slate-500">No updates yet.</p> : (
+        <div className="space-y-3">{updates.map((u) => <UpdateCard key={u.id} u={u} campaign={db.campaigns.find((c) => c.id === u.campaignId)} />)}</div>
+      )}
+    </section>
   );
 }

@@ -3,6 +3,7 @@ import { StoreContext, type Store } from "../store";
 import { DEFAULT_SETTINGS, type AuditEntry, type BusinessProfile, type Campaign, type CampaignStats, type DB, type FinancialSummary } from "../types";
 import { docPath, validateDocument } from "../documents";
 import { profitOf, submitProblems } from "../project";
+import { generateObligations } from "../tracking";
 import { demoSeed, type DemoData } from "./seed";
 
 /**
@@ -10,8 +11,9 @@ import { demoSeed, type DemoData } from "./seed";
  * enforces in production (verification, admin approval, pledge minimums). Used for the in-chat preview.
  */
 
-const KEY = "fundbridge.demo.v1";
-const SESSION = "fundbridge.demo.session.v1";
+// v2: sample data now includes a funded campaign with commitment tracking.
+const KEY = "fundbridge.demo.v2";
+const SESSION = "fundbridge.demo.session.v2";
 
 function load<T>(key: string, fallback: () => T): T {
   try {
@@ -43,6 +45,8 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       projects: saved.projects ?? seed.projects,
       financials: saved.financials ?? seed.financials,
       documents: saved.documents ?? [],
+      obligations: saved.obligations ?? seed.obligations,
+      updates: saved.updates ?? seed.updates,
     } as DemoData;
   });
   const [uid, setUid] = useState<string | null>(() => load<string | null>(SESSION, () => null));
@@ -73,7 +77,15 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     return out;
   }, [data]);
 
-  const db: DB = useMemo(() => ({ ...data, stats, financialSummary }), [data, stats, financialSummary]);
+  // Like the campaign_updates policy: updates are for backers, the campaign's business and admins.
+  const visibleUpdates = useMemo(() => {
+    const isAdminUser = data.roles.some((r) => r.userId === uid && r.role === "admin");
+    return data.updates.filter((u) => isAdminUser
+      || data.campaigns.some((c) => c.id === u.campaignId && c.businessId === uid)
+      || data.pledges.some((p) => p.campaignId === u.campaignId && p.investorId === uid && p.status === "active"));
+  }, [data, uid]);
+
+  const db: DB = useMemo(() => ({ ...data, stats, financialSummary, updates: visibleUpdates }), [data, stats, financialSummary, visibleUpdates]);
   const role = data.roles.find((r) => r.userId === uid)?.role;
   const me = data.profiles.find((p) => p.id === uid);
   const user = uid && role && me ? { id: uid, name: me.name, email: me.email, role } : null;
@@ -334,6 +346,93 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       if (!uid) return { error: "Log in to view documents." };
       const found = data.documents.find((x) => x.id === doc.id);
       return found?.dataUrl ? { url: found.dataUrl, error: null } : { error: "Document not found." };
+    },
+
+    /* Commitment tracking (mirrors post_campaign_update and the admin tracking functions). */
+    postUpdate(u) {
+      return mutate(
+        (d) => {
+          const c = d.campaigns.find((x) => x.id === u.campaignId);
+          if (!c || c.businessId !== uid || !c.fundedOn) return "Only the business behind a funded campaign can post updates";
+          if (!u.title.trim() || !u.body.trim()) return "Give the update a title and some details.";
+          if (u.obligationId) {
+            const o = d.obligations.find((x) => x.id === u.obligationId && x.campaignId === u.campaignId);
+            if (!o) return "That commitment does not belong to this campaign";
+            if (o.status !== "open") return `That commitment is already ${o.status}`;
+            if (o.kind === "repayment" && !(u.amount && u.amount > 0)) return "Enter the amount repaid";
+          }
+          return null;
+        },
+        (d) => {
+          const upId = id("up");
+          d.updates.unshift({ ...u, id: upId, title: u.title.trim(), body: u.body.trim(), createdAt: now() });
+          const o = d.obligations.find((x) => x.id === u.obligationId);
+          if (o) Object.assign(o, { status: "done", completedAt: now(), updateId: upId });
+        },
+      );
+    },
+
+    markFunded(campaignId, fundedOn) {
+      return adminAct(
+        (d) => {
+          const c = d.campaigns.find((x) => x.id === campaignId);
+          if (!c) return "Campaign not found";
+          if (c.fundedOn) return "This campaign is already marked as funded";
+          if (c.status !== "live" && c.status !== "closed") return "Only live or closed campaigns can be marked as funded";
+          const raised = d.pledges.filter((p) => p.campaignId === campaignId && p.status === "active").reduce((s, p) => s + p.amount, 0);
+          return raised < c.goal ? `Not fully funded: ${raised} pledged of a ${c.goal} goal` : null;
+        },
+        (d) => {
+          const c = d.campaigns.find((x) => x.id === campaignId)!;
+          Object.assign(c, { status: "closed", fundedOn });
+          d.obligations.push(...generateObligations(c, d.projects[campaignId], d.settings, fundedOn, () => id("ob")));
+        },
+        { action: "campaign.funded", targetType: "campaign", targetId: campaignId, detail: `Funded on ${fundedOn}` },
+      );
+    },
+
+    setObligation(oid, action, dueOn, reason) {
+      return adminAct(
+        (d) => {
+          const o = d.obligations.find((x) => x.id === oid);
+          if (!reason.trim()) return "A reason is required";
+          if (!o) return "Commitment not found";
+          if (action === "reschedule" && !dueOn) return "Choose the new due date";
+          if ((action === "reschedule" || action === "waive") && o.status !== "open") return `Only open commitments can be ${action === "waive" ? "waived" : "rescheduled"}`;
+          if (action === "reopen" && o.status !== "waived") return "Only waived commitments can be reopened";
+          return null;
+        },
+        (d) => {
+          const o = d.obligations.find((x) => x.id === oid)!;
+          if (action === "reschedule") o.dueOn = dueOn!;
+          if (action === "waive") o.status = "waived";
+          if (action === "reopen") o.status = "open";
+          o.note = reason.trim();
+        },
+        { action: `obligation.${action}`, targetType: "obligation", targetId: oid, detail: reason + (action === "reschedule" ? ` (new due date ${dueOn})` : "") },
+      );
+    },
+
+    removeUpdate(upId, reason) {
+      const u = data.updates.find((x) => x.id === upId);
+      return adminAct(
+        () => (!reason.trim() ? "A reason is required" : u ? null : "Update not found"),
+        (d) => {
+          d.updates = d.updates.filter((x) => x.id !== upId);
+          d.obligations.filter((o) => o.updateId === upId).forEach((o) => Object.assign(o, { status: "open", completedAt: undefined, updateId: undefined }));
+        },
+        { action: "update.remove", targetType: "update", targetId: upId, detail: `${reason} | removed: ${u?.title ?? ""}` },
+      );
+    },
+
+    updateTrackingSettings(trackingMonths, dueSoonDays, deliveryMonths) {
+      return adminAct(
+        () => (trackingMonths < 3 || trackingMonths > 120 || dueSoonDays < 1 || dueSoonDays > 90 || deliveryMonths < 1 || deliveryMonths > 24
+          ? "Tracking 3–120 months, warnings 1–90 days ahead, reward delivery 1–24 months" : null),
+        (d) => { d.settings = { ...d.settings, trackingMonths, dueSoonDays, deliveryMonths }; },
+        { action: "settings.tracking", targetType: "settings", targetId: "platform",
+          detail: `track ${trackingMonths} months, warn ${dueSoonDays} days ahead, rewards due after ${deliveryMonths} months` },
+      );
     },
 
     setRole(userId, newRole) {

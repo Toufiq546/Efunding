@@ -1,4 +1,5 @@
-import { DEFAULT_SETTINGS, type DB, type Financials, type Project, type Role } from "../types";
+import { DEFAULT_SETTINGS, type CampaignUpdate, type DB, type Financials, type Obligation, type Project, type Role } from "../types";
+import { addMonths, generateObligations } from "../tracking";
 
 const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 const ago = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
@@ -20,7 +21,13 @@ const people: [string, string, string, Role][] = [
 
 /** Sample data for demo mode (the in-browser preview). Mirrors supabase/seed.sql. */
 export function demoSeed(): DemoData {
+  return withFundedExample(baseSeed());
+}
+
+function baseSeed(): DemoData {
   return {
+    obligations: [],
+    updates: [],
     settings: { ...DEFAULT_SETTINGS },
     audit: [],
     projects: Object.fromEntries(demoProjects().map((p) => [p.campaignId, p])),
@@ -217,4 +224,54 @@ function demoFinancials(): Financials[] {
       notes: "Same company accounts as the cold storage campaign.",
     },
   ];
+}
+
+/**
+ * Adds a campaign funded seven months ago, so the demo shows tracking in action: the first quarterly update,
+ * the installation milestone and the first repayment were done on time; the second quarterly update is overdue.
+ */
+function withFundedExample(d: DemoData): DemoData {
+  const fundedOn = addMonths(new Date().toISOString().slice(0, 10), -7);
+  const c = {
+    id: "c-solar-cs", businessId: "u-biz2", title: "Solar for 12 cold storages",
+    summary: "Rooftop solar for cold storages in Bogura and Rangpur, repaid from their power savings.",
+    pitch: "Cold storages run around the clock and power cuts spoil stock. Solar with batteries cuts their bills and keeps them running.",
+    useOfFunds: "", type: "debt" as const, sector: "Renewable Energy", location: "Rangpur", risk: "low" as const,
+    goal: 1800000, minInvestment: 10000, deadline: addMonths(fundedOn, -1), terms: { interestRate: 11, tenorMonths: 12 },
+    status: "closed" as const, createdAt: `${addMonths(fundedOn, -3)}T09:00:00.000Z`, fundedOn,
+  };
+  const project: Project = {
+    ...d.projects["c-solar"], campaignId: c.id, reporting: "quarterly",
+    story: "SunRoof's second campaign: solar systems for 12 cold storages that lose stock during load-shedding. Each storage pays a monthly fee below its saving on electricity and diesel.",
+    fundItems: [{ item: "Panels, inverters and batteries", amount: 1500000 }, { item: "Installation", amount: 300000 }],
+    milestones: [{ when: "Month 2", what: "All 12 systems installed" }],
+    returnPlan: { schedule: [{ month: 6, amount: 999000 }, { month: 12, amount: 999000 }] },
+    declaredAt: `${addMonths(fundedOn, -3)}T09:00:00.000Z`,
+  };
+  let n = 0;
+  const obligations = generateObligations(c, project, d.settings, fundedOn, () => `ob-${++n}`);
+  const updates: CampaignUpdate[] = [];
+  const complete = (match: (o: Obligation) => boolean, u: Omit<CampaignUpdate, "id" | "campaignId" | "obligationId" | "createdAt">) => {
+    const o = obligations.find(match)!;
+    const id = `up-${updates.length + 1}`;
+    const at = new Date(Date.parse(o.dueOn) - 2 * 86_400_000 + 10 * 3_600_000).toISOString(); // two days early
+    Object.assign(o, { status: "done", completedAt: at, updateId: id });
+    updates.push({ ...u, id, campaignId: c.id, obligationId: o.id, createdAt: at });
+  };
+  complete((o) => o.kind === "milestone", { title: "All 12 systems installed", body: "Installation finished at all 12 cold storages. The last two in Rangpur were connected on schedule." });
+  complete((o) => o.kind === "update", { title: "First quarter: systems running", body: "All systems are generating. Storages report 3–4 fewer hours of diesel generator use per day. Every storage has paid its monthly fee.", sales: 410000, spent: 1800000 });
+  complete((o) => o.kind === "repayment", { title: "First repayment made", body: "We repaid ৳9,99,000 to investors as scheduled.", amount: 999000 });
+  return {
+    ...d,
+    campaigns: [...d.campaigns, c],
+    projects: { ...d.projects, [c.id]: project },
+    financials: { ...d.financials, [c.id]: { ...d.financials["c-solar"], campaignId: c.id, checked: true, checkedAt: c.createdAt } },
+    pledges: [
+      ...d.pledges,
+      { id: "p-cs1", campaignId: c.id, investorId: "u-inv1", amount: 1200000, status: "active", createdAt: c.createdAt },
+      { id: "p-cs2", campaignId: c.id, investorId: "u-inv2", amount: 600000, status: "active", createdAt: c.createdAt },
+    ],
+    obligations: [...d.obligations, ...obligations],
+    updates: [...d.updates, ...updates],
+  };
 }

@@ -252,5 +252,56 @@ select pg_temp.act_as(:I1);
 select pg_temp.check((select count(*) from public.admin_audit) = 0, 'non-admins cannot read the activity log');
 reset role;
 
+-- ───────── Commitment tracking after funding ─────────
+select pg_temp.expect_fail(:A, $$select public.admin_mark_funded((select id from public.campaigns limit 1))$$, 'Not fully funded');
+-- Fixture: top the campaign up to its goal (bypassing the live-only pledge guard; the admin closed it earlier).
+alter table public.pledges disable trigger pledges_guard;
+insert into public.pledges (campaign_id, investor_id, amount, status)
+select id, :I1, goal, 'active' from public.campaigns;
+alter table public.pledges enable trigger pledges_guard;
+select pg_temp.expect_fail(:B1, $$select public.admin_mark_funded((select id from public.campaigns limit 1))$$, 'Admins only');
+select pg_temp.act_as(:A);
+select pg_temp.check(public.admin_mark_funded((select id from public.campaigns limit 1), '2026-01-15') = 11,
+  'funding generates 8 quarterly updates, 2 yearly accounts and 1 milestone');
+reset role;
+select pg_temp.check((select funded_on = '2026-01-15' and status = 'closed' from public.campaigns), 'campaign is closed and dated as funded');
+select pg_temp.check((select min(due_on) = '2026-04-15' from public.obligations where kind = 'update'), 'first quarterly update is due 3 months after funding');
+select pg_temp.check((select due_on = '2026-04-15' from public.obligations where kind = 'milestone'), '"Month 3" milestone is dated');
+select pg_temp.expect_fail(:A, $$select public.admin_mark_funded((select id from public.campaigns limit 1))$$, 'already marked');
+select pg_temp.act_as(null);
+select pg_temp.check((select count(*) from public.obligations) = 11, 'anyone can see the commitments and their status');
+reset role;
+
+select pg_temp.expect_fail(:B2, $$select public.post_campaign_update((select id from public.campaigns limit 1), null, 'Hi', 'Fake update')$$, 'Only the business');
+select pg_temp.expect_fail(:B1, $$insert into public.campaign_updates (campaign_id, title, body) select id, 'x', 'y' from public.campaigns$$, 'permission denied');
+select pg_temp.expect_fail(:B1, $$update public.obligations set status = 'done'$$, 'permission denied');
+select pg_temp.act_as(:B1);
+select public.post_campaign_update((select id from public.campaigns limit 1),
+  (select id from public.obligations where kind = 'update' order by due_on limit 1), 'Q1 update', 'Machines installed, sales up.', null, 120000, 60000);
+reset role;
+select pg_temp.check((select count(*) from public.obligations where status = 'done') = 1, 'posting an update completes its commitment');
+select pg_temp.expect_fail(:B1, $$select public.post_campaign_update((select id from public.campaigns limit 1), (select id from public.obligations where status = 'done'), 'Again', 'Twice')$$, 'already done');
+select pg_temp.act_as(null);
+select pg_temp.check((select count(*) from public.campaign_updates) = 0, 'visitors cannot read updates');
+reset role;
+select pg_temp.act_as(:I2);
+select pg_temp.check((select count(*) from public.campaign_updates) = 0, 'non-backers cannot read updates');
+reset role;
+select pg_temp.act_as(:I1);
+select pg_temp.check((select count(*) from public.campaign_updates) = 1, 'backers read updates');
+reset role;
+
+select pg_temp.expect_fail(:A, $$select public.admin_set_obligation((select id from public.obligations where status = 'open' order by due_on limit 1), 'waive', null, '')$$, 'reason is required');
+select pg_temp.expect_fail(:I1, $$select public.admin_set_obligation((select id from public.obligations limit 1), 'waive', null, 'x')$$, 'Admins only');
+select pg_temp.act_as(:A);
+select public.admin_set_obligation((select id from public.obligations where status = 'open' order by due_on limit 1), 'reschedule', '2026-09-01', 'Flood in the area');
+select public.admin_set_obligation((select id from public.obligations where kind = 'milestone'), 'waive', null, 'Milestone replaced');
+select public.admin_remove_update((select id from public.campaign_updates limit 1), 'Contained personal data');
+select pg_temp.check((select count(*) from public.admin_audit where action in ('campaign.funded', 'obligation.reschedule', 'obligation.waive', 'update.remove')) = 4,
+  'tracking actions are logged');
+reset role;
+select pg_temp.check((select count(*) from public.obligations where status = 'done') = 0, 'removing an update reopens its commitment');
+select pg_temp.check((select status = 'waived' and note = 'Milestone replaced' from public.obligations where kind = 'milestone'), 'admin waived a commitment with a reason');
+
 rollback;
 \echo 'ALL TESTS PASSED'

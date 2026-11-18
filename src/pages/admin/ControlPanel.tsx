@@ -4,6 +4,8 @@ import { useStore } from "../../lib/store";
 import { Empty, ErrorNote, ReasonAction, Stat, StatusBadge, TypeBadge } from "../../components/ui";
 import { effectiveStatus, formatDate, formatMoney, raisedFor } from "../../lib/format";
 import { allowedReporting, REPORTING_LABEL, submitProblems } from "../../lib/project";
+import { compliance, obligationState, today } from "../../lib/tracking";
+import { ComplianceSummary, KIND_LABEL, StateBadge, UpdateCard } from "../../components/tracking/Tracking";
 import { REPORTING, type Campaign, type Reporting } from "../../lib/types";
 import type { AuditEntry, Role } from "../../lib/types";
 
@@ -20,6 +22,7 @@ const TABS = [
   ["campaigns", "Campaigns"],
   ["users", "Users"],
   ["pledges", "Pledges"],
+  ["tracking", "Tracking"],
   ["questions", "Q&A"],
   ["settings", "Settings"],
   ["activity", "Activity log"],
@@ -51,7 +54,8 @@ export default function ControlPanel() {
   const { db } = useStore();
   const pendingBiz = db.businesses.filter((b) => b.verification === "pending").length;
   const pendingCampaigns = db.campaigns.filter((c) => c.status === "pending").length;
-  const badge: Partial<Record<Tab, number>> = { businesses: pendingBiz, campaigns: pendingCampaigns };
+  const overdue = db.obligations.filter((o) => obligationState(o, db.settings.dueSoonDays) === "overdue").length;
+  const badge: Partial<Record<Tab, number>> = { businesses: pendingBiz, campaigns: pendingCampaigns, tracking: overdue };
 
   return (
     <div className="space-y-6">
@@ -80,6 +84,7 @@ export default function ControlPanel() {
       {tab === "campaigns" && <Campaigns action={action} />}
       {tab === "users" && <Users action={action} />}
       {tab === "pledges" && <Pledges action={action} />}
+      {tab === "tracking" && <Tracking action={action} />}
       {tab === "questions" && <Questions action={action} />}
       {tab === "settings" && <Settings action={action} />}
       {tab === "activity" && <Activity />}
@@ -142,6 +147,8 @@ function Overview({ action, go }: { action: Act; go: (t: Tab) => void }) {
         <Stat label="Live campaigns" value={`${live.length} (${funded} funded)`} />
         <Stat label="Total pledged" value={formatMoney(totalPledged)} />
       </div>
+
+      <OverdueAlert go={go} />
 
       <section className="card space-y-3">
         <h2 className="text-lg font-bold">Needs your review</h2>
@@ -274,6 +281,10 @@ function Campaigns({ action }: { action: Act }) {
                       <ReasonAction label="Request changes" submitLabel="Send to business" disabled={action.busy} sections={REVIEW_SECTIONS} onSubmit={(r) => action.act(() => reviewCampaign(c.id, false, r), `"${c.title}" sent back to the business.`)} />
                     </>
                   )}
+                  {(c.status === "live" || c.status === "closed") && !c.fundedOn && raisedFor(db, c.id) >= c.goal && (
+                    <MarkFunded c={c} action={action} />
+                  )}
+                  {c.fundedOn && <span className="badge bg-green-100 text-green-800">Funded {formatDate(c.fundedOn)}</span>}
                   {st === "live" && (
                     <ReasonAction label="Close" submitLabel="Close campaign" disabled={action.busy} onSubmit={(r) => action.act(() => closeCampaign(c.id, r), `"${c.title}" closed. It no longer accepts pledges.`)} />
                   )}
@@ -454,6 +465,7 @@ function Settings({ action }: { action: Act }) {
       </div>
       <button className="btn-primary" disabled={action.busy}>{action.busy ? "Saving…" : "Save settings"}</button>
       <ProjectSettings action={action} />
+      <TrackingSettings action={action} />
     </form>
   );
 }
@@ -535,6 +547,12 @@ const ACTION_LABEL: Record<string, string> = {
   "settings.project": "Updated project page rules",
   "financials.check": "Marked accounts checked",
   "financials.uncheck": "Removed accounts check",
+  "campaign.funded": "Marked campaign funded",
+  "obligation.reschedule": "Rescheduled commitment",
+  "obligation.waive": "Waived commitment",
+  "obligation.reopen": "Reopened commitment",
+  "update.remove": "Removed update",
+  "settings.tracking": "Updated tracking rules",
 };
 
 function useTargetName() {
@@ -544,6 +562,11 @@ function useTargetName() {
       case "business": return db.businesses.find((b) => b.userId === a.targetId)?.companyName ?? "a business";
       case "campaign": return db.campaigns.find((c) => c.id === a.targetId)?.title ?? "a campaign";
       case "user": return db.profiles.find((p) => p.id === a.targetId)?.name ?? "a user";
+      case "obligation": {
+        const o = db.obligations.find((x) => x.id === a.targetId);
+        return o ? `${o.title} (${db.campaigns.find((c) => c.id === o.campaignId)?.title ?? "a campaign"})` : "a commitment";
+      }
+      case "update": return "a progress update";
       case "pledge": {
         const p = db.pledges.find((x) => x.id === a.targetId);
         return p ? `${formatMoney(p.amount)} by ${db.profiles.find((x) => x.id === p.investorId)?.name ?? "an investor"}` : "a pledge";
@@ -590,5 +613,182 @@ function Activity() {
         ))}
       </Table>
     </div>
+  );
+}
+
+/* ───────────── Commitment tracking ───────────── */
+
+function OverdueAlert({ go }: { go: (t: Tab) => void }) {
+  const { db } = useStore();
+  const overdue = db.obligations.filter((o) => obligationState(o, db.settings.dueSoonDays) === "overdue");
+  if (!overdue.length) return null;
+  const campaigns = new Set(overdue.map((o) => o.campaignId)).size;
+  return (
+    <button type="button" onClick={() => go("tracking")} className="w-full rounded-xl border border-red-200 bg-red-50 p-4 text-left text-sm text-red-800 hover:bg-red-100">
+      <b>{overdue.length} overdue commitment{overdue.length > 1 ? "s" : ""}</b> across {campaigns} funded campaign{campaigns > 1 ? "s" : ""}. Open Tracking to follow up →
+    </button>
+  );
+}
+
+function MarkFunded({ c, action }: { c: Campaign; action: Act }) {
+  const { markFunded } = useStore();
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(today());
+  if (!open) return <button type="button" className="btn-primary" disabled={action.busy} onClick={() => setOpen(true)}>Mark funded</button>;
+  return (
+    <div className="flex w-full flex-col gap-2 sm:w-72">
+      <label className="label" htmlFor={`funded-${c.id}`}>Funding completed on</label>
+      <input id={`funded-${c.id}`} type="date" className="input" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+      <p className="text-xs text-slate-500">Closes the campaign and starts tracking its commitments from this date.</p>
+      <div className="flex gap-2">
+        <button type="button" className="btn-primary flex-1" disabled={action.busy || !date}
+          onClick={() => action.act(() => markFunded(c.id, date), `"${c.title}" is funded. Its commitments are now being tracked.`)}>Confirm</button>
+        <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function Reschedule({ id, current, action }: { id: string; current: string; action: Act }) {
+  const { setObligation } = useStore();
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(current);
+  const [reason, setReason] = useState("");
+  if (!open) return <button type="button" className="btn-secondary" disabled={action.busy} onClick={() => setOpen(true)}>Reschedule</button>;
+  return (
+    <form className="flex w-full flex-col gap-2 sm:w-72" onSubmit={(e) => { e.preventDefault(); action.act(() => setObligation(id, "reschedule", date, reason), "Due date changed."); setOpen(false); }}>
+      <label className="label" htmlFor={`due-${id}`}>New due date</label>
+      <input id={`due-${id}`} type="date" className="input" required value={date} onChange={(e) => setDate(e.target.value)} />
+      <label className="label" htmlFor={`why-${id}`}>Reason (kept in the activity log)</label>
+      <textarea id={`why-${id}`} className="input min-h-16" required value={reason} onChange={(e) => setReason(e.target.value)} />
+      <div className="flex gap-2">
+        <button className="btn-primary flex-1" disabled={action.busy || !reason.trim()}>Save new date</button>
+        <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+function Tracking({ action }: { action: Act }) {
+  const { db, setObligation, removeUpdate } = useStore();
+  type F = "attention" | "overdue" | "due-soon" | "open" | "done" | "waived" | "all";
+  const [filter, setFilter] = useState<F>("attention");
+  const [q, setQ] = useState("");
+  const state = (o: (typeof db.obligations)[number]) => obligationState(o, db.settings.dueSoonDays);
+  const is = (o: (typeof db.obligations)[number], f: F) =>
+    f === "all" ? true
+    : f === "attention" ? ["overdue", "due-soon"].includes(state(o))
+    : f === "open" ? o.status === "open"
+    : f === "done" || f === "waived" ? o.status === f
+    : state(o) === f;
+  const funded = db.campaigns.filter((c) => c.fundedOn);
+  const rows = db.obligations
+    .filter((o) => is(o, filter))
+    .filter((o) => matches(q, o.title, KIND_LABEL[o.kind], db.campaigns.find((c) => c.id === o.campaignId)?.title))
+    .sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+  const labels: [F, string][] = [["attention", "Needs attention"], ["overdue", "Overdue"], ["due-soon", "Due soon"], ["open", "All open"], ["done", "Done"], ["waived", "Waived"], ["all", "All"]];
+
+  if (funded.length === 0) {
+    return <Empty>No funded campaigns yet. When a campaign reaches its goal, use <b>Mark funded</b> in the Campaigns tab to start tracking its commitments.</Empty>;
+  }
+  return (
+    <div className="space-y-6">
+      <ComplianceSummary list={db.obligations} />
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-bold">Track record by campaign</h2>
+        <Table head={["Campaign", "Funded", "Kept", "On time", "Overdue", "Next due"]} empty="No funded campaigns.">
+          {funded.map((c) => {
+            const list = db.obligations.filter((o) => o.campaignId === c.id);
+            const k = compliance(list, db.settings.dueSoonDays);
+            const next = list.filter((o) => o.status === "open").sort((a, b) => a.dueOn.localeCompare(b.dueOn))[0];
+            return (
+              <tr key={c.id} className="border-t border-slate-100">
+                <td className="px-3 py-3"><Link to={`/campaigns/${c.id}`} className="font-semibold text-brand-700 hover:underline">{c.title}</Link></td>
+                <td className="px-3 py-3">{formatDate(c.fundedOn!)}</td>
+                <td className="px-3 py-3 tabular-nums">{k.done} of {k.due}</td>
+                <td className="px-3 py-3 tabular-nums">{k.due ? `${Math.round((k.onTime / k.due) * 100)}%` : "—"}</td>
+                <td className={`px-3 py-3 font-semibold tabular-nums ${k.overdue ? "text-red-700" : ""}`}>{k.overdue}</td>
+                <td className="px-3 py-3 text-xs">{next ? <>{next.title}<br /><span className="text-slate-500">{formatDate(next.dueOn)}</span></> : "—"}</td>
+              </tr>
+            );
+          })}
+        </Table>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-bold">Commitments</h2>
+        <Filters value={filter} onChange={setFilter} search={q} onSearch={setQ}
+          options={labels.map(([v, l]) => [v, l, db.obligations.filter((o) => is(o, v)).length])} />
+        <Table head={["Due", "Commitment", "Campaign", "Status", ""]} empty="Nothing matches. All caught up.">
+          {rows.map((o) => {
+            const c = db.campaigns.find((x) => x.id === o.campaignId);
+            return (
+              <tr key={o.id} className="border-t border-slate-100 align-top">
+                <td className="whitespace-nowrap px-3 py-3">{formatDate(o.dueOn)}</td>
+                <td className="px-3 py-3"><p className="font-medium">{o.title}{o.amount ? ` · ${formatMoney(o.amount)}` : ""}</p><p className="text-xs text-slate-500">{KIND_LABEL[o.kind]}{o.note ? ` · ${o.note}` : ""}</p></td>
+                <td className="px-3 py-3">{c ? <Link to={`/campaigns/${c.id}`} className="text-brand-700 hover:underline">{c.title}</Link> : "—"}</td>
+                <td className="px-3 py-3"><StateBadge o={o} /></td>
+                <td className="px-3 py-3">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {o.status === "open" && <Reschedule id={o.id} current={o.dueOn} action={action} />}
+                    {o.status === "open" && (
+                      <ReasonAction label="Waive" submitLabel="Waive commitment" tone="secondary" reasonLabel="Reason (kept in the activity log)" disabled={action.busy}
+                        onSubmit={(r) => action.act(() => setObligation(o.id, "waive", null, r), "Commitment waived.")} />
+                    )}
+                    {o.status === "waived" && (
+                      <ReasonAction label="Reopen" submitLabel="Reopen commitment" tone="secondary" reasonLabel="Reason (kept in the activity log)" disabled={action.busy}
+                        onSubmit={(r) => action.act(() => setObligation(o.id, "reopen", null, r), "Commitment reopened.")} />
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </Table>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-bold">Latest updates from businesses</h2>
+        {db.updates.length === 0 ? <p className="text-sm text-slate-500">No updates posted yet.</p> : (
+          [...db.updates].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 10).map((u) => (
+            <div key={u.id} className="flex flex-col gap-2 sm:flex-row sm:items-start">
+              <div className="min-w-0 flex-1"><UpdateCard u={u} campaign={db.campaigns.find((c) => c.id === u.campaignId)} /></div>
+              <ReasonAction label="Remove" submitLabel="Remove update" reasonLabel="Reason (kept in the activity log; the commitment reopens)" disabled={action.busy}
+                onSubmit={(r) => action.act(() => removeUpdate(u.id, r), "Update removed. Its commitment is open again.")} />
+            </div>
+          ))
+        )}
+      </section>
+    </div>
+  );
+}
+
+function TrackingSettings({ action }: { action: Act }) {
+  const { db, updateTrackingSettings } = useStore();
+  const [months, setMonths] = useState(db.settings.trackingMonths);
+  const [soon, setSoon] = useState(db.settings.dueSoonDays);
+  const [delivery, setDelivery] = useState(db.settings.deliveryMonths);
+  const field = (id: string, label: string, value: number, set: (n: number) => void, min: number, max: number, hint: string) => (
+    <div>
+      <label className="label" htmlFor={id}>{label}</label>
+      <input id={id} type="number" min={min} max={max} className="input" value={value} onChange={(e) => set(Number(e.target.value))} />
+      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+    </div>
+  );
+  return (
+    <section className="card space-y-4 border-t-4 border-t-brand-600">
+      <div>
+        <h2 className="text-lg font-bold">Commitment tracking</h2>
+        <p className="text-sm text-slate-600">Applies to campaigns marked funded from now on (existing schedules keep their dates).</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {field("track-months", "Track for (months)", months, setMonths, 3, 120, "How long updates and accounts are scheduled after funding.")}
+        {field("due-soon", "Warn before due (days)", soon, setSoon, 1, 90, "When a commitment shows as “due soon”.")}
+        {field("delivery-months", "Reward delivery due (months)", delivery, setDelivery, 1, 24, "For reward campaigns, after funding.")}
+      </div>
+      <button type="button" className="btn-primary" disabled={action.busy}
+        onClick={() => action.act(() => updateTrackingSettings(months, soon, delivery), "Tracking rules saved.")}>Save tracking rules</button>
+    </section>
   );
 }
