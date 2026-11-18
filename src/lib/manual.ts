@@ -205,6 +205,37 @@ If a business falls behind, contact the person named in its **Commitments** tab.
     },
   },
 
+  {
+    slug: "investor-wallet", audience: "investor", order: 14,
+    title: { en: "Your wallet", bn: "আপনার ওয়ালেট" },
+    body: {
+      en: `Click **Wallet** at the top to see your money record. FundBridge doesn't hold money; payments happen directly between you and the business. The wallet keeps track for you.
+
+## The four numbers
+- **Pledged (campaigns open):** promises on campaigns still raising money. You can cancel these.
+- **Invested (funded):** pledges on campaigns that reached their goal.
+- **Received back:** your share of every repayment the business has recorded.
+- **Still expected:** your share of repayments that are scheduled but not yet made.
+
+## Your share
+For loan campaigns you receive the same share of each repayment as your share of the money raised. For example, if you put in ৳12 lakh of ৳18 lakh, you get two-thirds of each repayment. For equity campaigns the wallet shows the percentage of the company your investment represents; for reward campaigns, the reward you're due.
+
+The **Statement** lists every pledge, investment and repayment by date. If a repayment the business recorded hasn't reached you, contact the person in the campaign's **Commitments** tab and tell FundBridge.`,
+      bn: `উপরে **Wallet** চাপলে আপনার টাকার হিসাব দেখবেন। FundBridge টাকা রাখে না; লেনদেন সরাসরি আপনার আর ব্যবসার মধ্যে হয়। ওয়ালেট আপনার হয়ে হিসাব রাখে।
+
+## চারটি সংখ্যা
+- **Pledged (campaigns open):** যেসব ক্যাম্পেইন এখনো টাকা তুলছে সেগুলোতে আপনার প্রতিশ্রুতি। এগুলো বাতিল করতে পারেন।
+- **Invested (funded):** লক্ষ্যে পৌঁছানো ক্যাম্পেইনে আপনার প্লেজ।
+- **Received back:** ব্যবসার লিখে রাখা প্রতিটি কিস্তিতে আপনার অংশ।
+- **Still expected:** নির্ধারিত কিন্তু এখনো না দেওয়া কিস্তিতে আপনার অংশ।
+
+## আপনার অংশ
+ঋণ ক্যাম্পেইনে মোট তোলা টাকায় আপনার যত অংশ, প্রতিটি কিস্তিতেও তত অংশ পাবেন। যেমন ১৮ লাখের মধ্যে ১২ লাখ দিলে প্রতিটি কিস্তির দুই-তৃতীয়াংশ পাবেন। ইকুইটি ক্যাম্পেইনে ওয়ালেট দেখায় আপনার বিনিয়োগ কোম্পানির কত শতাংশ; পুরস্কার ক্যাম্পেইনে দেখায় আপনি কোন পুরস্কার পাবেন।
+
+**Statement**-এ তারিখ অনুযায়ী প্রতিটি প্লেজ, বিনিয়োগ ও কিস্তি থাকে। ব্যবসার লিখে রাখা কোনো কিস্তি আপনার কাছে না পৌঁছালে ক্যাম্পেইনের **Commitments** ট্যাবে দেওয়া ব্যক্তির সাথে যোগাযোগ করুন এবং FundBridge-কে জানান।`,
+    },
+  },
+
   /* ───────────── Businesses ───────────── */
   {
     slug: "business-verification", audience: "business", order: 20,
@@ -325,6 +356,31 @@ Investors and FundBridge see your track record, including anything overdue. If y
     },
   },
 
+  {
+    slug: "business-wallet", audience: "business", order: 24,
+    title: { en: "Your wallet: raised, repaid and owed", bn: "আপনার ওয়ালেট: তোলা, পরিশোধ ও বাকি" },
+    body: {
+      en: `Click **Wallet** at the top to see your money record across all your campaigns. FundBridge doesn't hold money; investors pay you directly and you repay them directly.
+
+- **Pledged (campaigns open):** pledges on campaigns still raising money.
+- **Raised (funded):** money from campaigns that reached their goal.
+- **Repaid to investors:** repayments you've recorded.
+- **Still owed:** scheduled repayments not yet made. The **Next repayment** box shows the amount and due date.
+
+## Recording a repayment
+After you pay investors, go to your **Dashboard → Commitments to keep**, click **Post update** next to the repayment, and enter the amount repaid. It then appears in your wallet and in each backer's wallet as their share.`,
+      bn: `উপরে **Wallet** চাপলে আপনার সব ক্যাম্পেইনের টাকার হিসাব দেখবেন। FundBridge টাকা রাখে না; বিনিয়োগকারীরা সরাসরি আপনাকে টাকা দেন আর আপনি সরাসরি তাদের ফেরত দেন।
+
+- **Pledged (campaigns open):** যেসব ক্যাম্পেইন এখনো টাকা তুলছে সেগুলোর প্লেজ।
+- **Raised (funded):** লক্ষ্যে পৌঁছানো ক্যাম্পেইন থেকে পাওয়া টাকা।
+- **Repaid to investors:** আপনার লিখে রাখা পরিশোধিত কিস্তি।
+- **Still owed:** নির্ধারিত কিন্তু এখনো না দেওয়া কিস্তি। **Next repayment** বাক্সে অঙ্ক ও তারিখ দেখায়।
+
+## কিস্তি পরিশোধ লিখে রাখা
+বিনিয়োগকারীদের টাকা দেওয়ার পর **Dashboard → Commitments to keep**-এ গিয়ে কিস্তির পাশে **Post update** চাপুন এবং পরিশোধ করা অঙ্ক লিখুন। তখন এটি আপনার ওয়ালেটে এবং প্রতিটি সমর্থকের ওয়ালেটে তাদের অংশ হিসেবে দেখাবে।`,
+    },
+  },
+
   /* ───────────── Admins ───────────── */
   {
     slug: "admin-reviewing", audience: "admin", order: 30,
@@ -363,7 +419,10 @@ Each campaign shows whether its project page is complete, how many years of acco
 - **Commitments:** filter by **Needs attention**, overdue, due soon, done or waived. **Reschedule** moves a due date and **Waive** cancels a commitment; both need a reason. A waived commitment can be reopened.
 - **Latest updates:** remove an update that's improper (for example personal data); its commitment opens again.
 
-The Overview shows a red alert whenever something is overdue.`,
+The Overview shows a red alert whenever something is overdue.
+
+## Wallets tab
+Platform totals (pledged, raised, repaid, still owed, overdue repayments) and every investor's and business's money record. Click **Open wallet** to see one user's wallet exactly as they see it. FundBridge holds no money; the wallets are records.`,
       bn: `কোনো ক্যাম্পেইনে পুরো লক্ষ্যের প্লেজ হয়ে গেলে **Campaigns**-এ গিয়ে **Mark funded** চাপুন এবং ফান্ডিং শেষ হওয়ার তারিখ বেছে নিন। ক্যাম্পেইন বন্ধ হয় এবং তারিখসহ প্রতিশ্রুতি তৈরি হয়।
 
 ## Tracking ট্যাব
@@ -371,7 +430,10 @@ The Overview shows a red alert whenever something is overdue.`,
 - **Commitments:** **Needs attention**, সময় পেরোনো, শিগগিরই করণীয়, সম্পন্ন বা মওকুফ দিয়ে ফিল্টার করুন। **Reschedule** দিয়ে তারিখ বদলান আর **Waive** দিয়ে মওকুফ করুন; দুটোতেই কারণ লাগবে। মওকুফ করা প্রতিশ্রুতি আবার খোলা যায়।
 - **Latest updates:** অনুপযুক্ত আপডেট (যেমন ব্যক্তিগত তথ্য) মুছে ফেলুন; তখন সেই প্রতিশ্রুতি আবার খোলা হয়।
 
-কিছু সময় পেরিয়ে গেলে Overview-তে লাল সতর্কবার্তা দেখায়।`,
+কিছু সময় পেরিয়ে গেলে Overview-তে লাল সতর্কবার্তা দেখায়।
+
+## Wallets ট্যাব
+প্ল্যাটফর্মের মোট হিসাব (প্লেজ, তোলা টাকা, পরিশোধ, বাকি, সময় পেরোনো কিস্তি) এবং প্রত্যেক বিনিয়োগকারী ও ব্যবসার টাকার হিসাব। **Open wallet** চাপলে ব্যবহারকারী নিজে যেভাবে দেখেন ঠিক সেভাবে তার ওয়ালেট দেখবেন। FundBridge টাকা রাখে না; ওয়ালেট শুধু হিসাব।`,
     },
   },
   {

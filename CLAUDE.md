@@ -42,6 +42,10 @@ The local backend is throwaway; `npm run local:db` resets it.
   funded campaign and generates dated obligations; `src/lib/tracking.ts` `generateObligations()` mirrors it (keep both
   in step). Businesses complete obligations with `post_campaign_update`. Obligations are public; updates are for backers,
   the business and admins. UI pieces in `src/components/tracking/Tracking.tsx`.
+- **Wallet** (`/wallet`, `src/lib/wallet.ts`): a money record per user computed from pledges, funding and recorded
+  repayments (investor: pledged/invested/received/expected with pro-rata repayment share; business: raised/repaid/owed;
+  admin: platform totals, and any user's wallet via `?user=`). The owner chose a record, not real money: FundBridge holds
+  no funds. Don't add deposits, payouts or payment providers without the owner's explicit decision.
 - **User manual**: bilingual (English + Bangla) built-in articles in `src/lib/manual.ts`, per audience (everyone, investor,
   business, admin), shown at `/help` opening on the reader's role. Admin edits/hides/adds articles in the control panel
   Manual tab (`help_articles`, same slug overrides). Use `{{placeholders}}` for values from Settings. `HelpLink` gives
@@ -55,7 +59,7 @@ The local backend is throwaway; `npm run local:db` resets it.
 ## Rules
 
 - **Every feature ships with its admin control panel section.** The owner manages everything from
-  `src/pages/admin/ControlPanel.tsx` (tabs: Overview, Businesses, Campaigns, Users, Pledges, Tracking, Q&A, Settings, Manual, Activity log).
+  `src/pages/admin/ControlPanel.tsx` (tabs: Overview, Businesses, Campaigns, Users, Pledges, Tracking, Wallets, Q&A, Settings, Manual, Activity log).
   When you add a feature, also add in the same change:
   1. a tab (or a section in an existing tab) to view and manage its data, with filters/search for lists;
   2. admin actions as `SECURITY DEFINER` functions in a new migration that check `has_role('admin')` and call

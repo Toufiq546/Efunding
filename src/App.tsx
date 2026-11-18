@@ -15,6 +15,7 @@ import SetupNotice from "./pages/SetupNotice";
 import ControlPanel from "./pages/admin/ControlPanel";
 import ProjectBuilder from "./pages/ProjectBuilder";
 import Help from "./pages/Help";
+import Wallet from "./pages/Wallet";
 import { useStore } from "./lib/store";
 import { isConfigured } from "./lib/supabase";
 import { isDemo } from "./lib/mode";
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="campaigns/:id/edit" element={<RequireRole role="business"><CampaignForm /></RequireRole>} />
         <Route path="campaigns/:id/build" element={<RequireRole role="business"><ProjectBuilder /></RequireRole>} />
         <Route path="help" element={<Help />} />
+        <Route path="wallet" element={<RequireRole><Wallet /></RequireRole>} />
         <Route path="login" element={<GuestOnly><Login /></GuestOnly>} />
         <Route path="register" element={<GuestOnly><Register /></GuestOnly>} />
         <Route path="forgot-password" element={<ForgotPassword />} />

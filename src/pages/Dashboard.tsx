@@ -290,6 +290,7 @@ function BusinessDashboard() {
 function CommitmentsToKeep({ campaigns }: { campaigns: Campaign[] }) {
   const { db } = useStore();
   const [posting, setPosting] = useState<string | null>(null);
+  const [posted, setPosted] = useState<string | null>(null);
   if (campaigns.length === 0) return null;
   return (
     <section className="card space-y-5">
@@ -297,6 +298,7 @@ function CommitmentsToKeep({ campaigns }: { campaigns: Campaign[] }) {
         <h2 className="flex flex-wrap items-center gap-3 text-xl font-bold">Commitments to keep <HelpLink article="business-after-funding">How to post updates</HelpLink></h2>
         <p className="text-sm text-slate-600">Investors and FundBridge see whether each promise is kept on time. Post an update to complete a commitment.</p>
       </div>
+      {posted && <p className="rounded-lg bg-green-50 p-3 text-sm font-medium text-green-800" role="status">Posted ✓ “{posted}” is done and your backers can read the update.</p>}
       {campaigns.map((c) => {
         const list = db.obligations.filter((o) => o.campaignId === c.id);
         const attention = list
@@ -317,9 +319,9 @@ function CommitmentsToKeep({ campaigns }: { campaigns: Campaign[] }) {
                   <span><b>{o.title}</b> <span className="text-xs text-slate-500">· {KIND_LABEL[o.kind]} · due {formatDate(o.dueOn)}</span></span>
                   <span className="flex items-center gap-2">
                     <StateBadge o={o} />
-                    <button type="button" className="btn-secondary" onClick={() => setPosting(posting === o.id ? null : o.id)}>Post update</button>
+                    <button type="button" className="btn-secondary" onClick={() => { setPosted(null); setPosting(posting === o.id ? null : o.id); }}>Post update</button>
                   </span>
-                  {posting === o.id && <div className="w-full"><PostUpdateForm c={c} preselect={o.id} onDone={() => setPosting(null)} /></div>}
+                  {posting === o.id && <div className="w-full"><PostUpdateForm c={c} preselect={o.id} onDone={() => { setPosting(null); setPosted(o.title); }} /></div>}
                 </li>
               ))}
             </ul>

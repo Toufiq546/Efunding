@@ -28,6 +28,7 @@ export default function Layout() {
       <NavLink to="/campaigns" className={cls}>Browse campaigns</NavLink>
       <NavLink to="/help" className={cls}>Help · সাহায্য</NavLink>
       {user && <NavLink to="/dashboard" className={cls}>{user.role === "admin" ? "Control panel" : "Dashboard"}</NavLink>}
+      {user && <NavLink to="/wallet" className={cls}>Wallet</NavLink>}
     </>
   );
 

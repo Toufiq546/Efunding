@@ -5,6 +5,7 @@ import { Empty, ErrorNote, ReasonAction, Stat, StatusBadge, TypeBadge } from "..
 import { effectiveStatus, formatDate, formatMoney, raisedFor } from "../../lib/format";
 import { allowedReporting, REPORTING_LABEL, submitProblems } from "../../lib/project";
 import { compliance, obligationState, today } from "../../lib/tracking";
+import { businessWallet, investorWallet, platformWallet } from "../../lib/wallet";
 import { ComplianceSummary, KIND_LABEL, StateBadge, UpdateCard } from "../../components/tracking/Tracking";
 import { HelpLink, Markdown } from "../../components/help/Markdown";
 import { AUDIENCE_LABEL, BUILT_IN, fillPlaceholders, mergeManual, type Audience, type HelpArticle, type HelpArticleRow } from "../../lib/manual";
@@ -26,6 +27,7 @@ const TABS = [
   ["users", "Users"],
   ["pledges", "Pledges"],
   ["tracking", "Tracking"],
+  ["wallets", "Wallets"],
   ["questions", "Q&A"],
   ["settings", "Settings"],
   ["manual", "Manual"],
@@ -81,7 +83,7 @@ export default function ControlPanel() {
       </nav>
 
       <div className="flex justify-end">
-        <HelpLink article={tab === "tracking" ? "admin-funding-and-tracking" : tab === "settings" || tab === "manual" || tab === "users" || tab === "activity" ? "admin-settings-and-manual" : "admin-reviewing"}>Admin guide</HelpLink>
+        <HelpLink article={tab === "tracking" || tab === "wallets" ? "admin-funding-and-tracking" : tab === "settings" || tab === "manual" || tab === "users" || tab === "activity" ? "admin-settings-and-manual" : "admin-reviewing"}>Admin guide</HelpLink>
       </div>
       <ErrorNote>{action.err}</ErrorNote>
       {action.ok && <p className="rounded-lg bg-brand-50 p-3 text-sm text-brand-700" role="status">{action.ok}</p>}
@@ -92,6 +94,7 @@ export default function ControlPanel() {
       {tab === "users" && <Users action={action} />}
       {tab === "pledges" && <Pledges action={action} />}
       {tab === "tracking" && <Tracking action={action} />}
+      {tab === "wallets" && <Wallets />}
       {tab === "questions" && <Questions action={action} />}
       {tab === "settings" && <Settings action={action} />}
       {tab === "manual" && <ManualEditor action={action} />}
@@ -983,5 +986,50 @@ function EligibilitySettings({ action }: { action: Act }) {
       <button type="button" className="btn-primary" disabled={action.busy}
         onClick={() => action.act(() => updateEligibility(e), "Eligibility rules saved.")}>Save eligibility rules</button>
     </section>
+  );
+}
+
+/* ───────────── Wallets (money records) ───────────── */
+
+function Wallets() {
+  const { db } = useStore();
+  type F = "all" | "investor" | "business";
+  const [filter, setFilter] = useState<F>("all");
+  const [q, setQ] = useState("");
+  const p = platformWallet(db);
+  const roleOf = (id: string) => db.roles.find((r) => r.userId === id)?.role;
+  const users = db.profiles.filter((u) => ["investor", "business"].includes(roleOf(u.id) ?? ""));
+  const rows = users
+    .filter((u) => filter === "all" || roleOf(u.id) === filter)
+    .filter((u) => matches(q, u.name, u.email, db.businesses.find((b) => b.userId === u.id)?.companyName))
+    .map((u) => ({ u, role: roleOf(u.id)!, inv: roleOf(u.id) === "investor" ? investorWallet(db, u.id) : undefined, biz: roleOf(u.id) === "business" ? businessWallet(db, u.id) : undefined }));
+  const n = (v: F) => (v === "all" ? users.length : users.filter((u) => roleOf(u.id) === v).length);
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-slate-600">Money records from pledges, funding and recorded repayments. FundBridge holds no money.</p>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        <Stat label="Pledged (campaigns open)" value={formatMoney(p.pledgedOpen)} />
+        <Stat label={`Raised (${p.fundedCount} funded)`} value={formatMoney(p.raised)} />
+        <Stat label="Repaid to investors" value={formatMoney(p.repaid)} />
+        <Stat label="Still owed" value={formatMoney(p.owed)} />
+      </div>
+      {p.overdueRepayments > 0 && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-800"><b>{formatMoney(p.overdueRepayments)}</b> in repayments is overdue. See the Tracking tab.</p>}
+      <Filters value={filter} onChange={setFilter} search={q} onSearch={setQ}
+        options={(["all", "investor", "business"] as F[]).map((v) => [v, v === "all" ? "All" : v === "investor" ? "Investors" : "Businesses", n(v)])} />
+      <Table head={["User", "Role", "Pledged (open)", "Invested / raised", "Received / repaid", "Expected / owed", ""]} empty="No wallets match.">
+        {rows.map(({ u, role, inv, biz }) => (
+          <tr key={u.id} className="border-t border-slate-100 align-top tabular-nums">
+            <td className="px-3 py-3"><p className="font-semibold">{biz ? db.businesses.find((b) => b.userId === u.id)?.companyName ?? u.name : u.name}</p><p className="text-xs text-slate-500">{u.email}</p></td>
+            <td className="px-3 py-3 capitalize">{role}</td>
+            <td className="px-3 py-3">{formatMoney((inv ?? biz)!.pledgedOpen)}</td>
+            <td className="px-3 py-3">{formatMoney(inv ? inv.invested : biz!.raised)}</td>
+            <td className="px-3 py-3 text-green-700">{formatMoney(inv ? inv.received : biz!.repaid)}</td>
+            <td className="px-3 py-3">{formatMoney(inv ? inv.expected : biz!.owed)}</td>
+            <td className="px-3 py-3 text-right"><Link to={`/wallet?user=${u.id}`} className="btn-secondary">Open wallet</Link></td>
+          </tr>
+        ))}
+      </Table>
+    </div>
   );
 }
