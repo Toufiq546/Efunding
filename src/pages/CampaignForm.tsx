@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { CAMPAIGN_TYPES, RISKS, type CampaignType, type RewardTier, type Risk } from "../lib/types";
-import { TYPE_LABEL, withCurrent } from "../lib/format";
+import { TYPE_LABEL, formatMoney, withCurrent } from "../lib/format";
 import { Empty, ErrorNote, Spinner } from "../components/ui";
 
 const defaultDeadline = () => new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
@@ -50,6 +50,9 @@ export default function CampaignForm() {
     const goal = Number(f.goal), minInvestment = Number(f.minInvestment);
     if (!f.title.trim() || !f.summary.trim()) return setErr("Title and summary are required.");
     if (!(goal > 0) || !(minInvestment > 0)) return setErr("Goal and minimum investment must be positive numbers.");
+    if (goal < db.settings.minGoal || goal > db.settings.maxGoal) {
+      return setErr(`The goal must be between ${formatMoney(db.settings.minGoal)} and ${formatMoney(db.settings.maxGoal)} (FundBridge eligibility rules).`);
+    }
     if (minInvestment > goal) return setErr("Minimum investment cannot exceed the goal.");
     if (f.deadline <= new Date().toISOString().slice(0, 10)) return setErr("The deadline must be in the future.");
     if (f.type === "equity" && toBuilder && !(Number(f.equityPercent) > 0 && Number(f.equityPercent) <= 100)) return setErr("Enter the equity % offered (1–100).");
@@ -117,7 +120,14 @@ export default function CampaignForm() {
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <div><label className="label">Goal (৳)</label><input className="input" type="number" min={1} value={f.goal} onChange={set("goal")} required /></div>
+          <div>
+            <label className="label">Goal (৳)</label>
+            <input className="input" type="number" min={db.settings.minGoal} max={db.settings.maxGoal} value={f.goal} onChange={set("goal")} required />
+            <p className="mt-1 text-xs text-slate-500">
+              {formatMoney(db.settings.minGoal)} to {formatMoney(db.settings.maxGoal)}
+              {db.settings.maxGoalToRevenue > 0 && `, and at most ${db.settings.maxGoalToRevenue}× last year's sales`}.
+            </p>
+          </div>
           <div><label className="label">Minimum pledge (৳)</label><input className="input" type="number" min={1} value={f.minInvestment} onChange={set("minInvestment")} required /></div>
           <div><label className="label">Deadline</label><input className="input" type="date" value={f.deadline} onChange={set("deadline")} required /></div>
         </div>

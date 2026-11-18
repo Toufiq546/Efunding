@@ -158,12 +158,25 @@ export interface PlatformSettings {
   dueSoonDays: number;
   /** Reward campaigns: delivery due this many months after funding. */
   deliveryMonths: number;
+  /* Eligibility to raise funds */
+  minYearsOperating: number;
+  minGoal: number;
+  maxGoal: number;
+  /** Goal may be at most this multiple of last year's sales (0 = no limit). */
+  maxGoalToRevenue: number;
+  /** Campaigns a business may have open or in review at once. */
+  maxOpenCampaigns: number;
+  requiredDocKinds: DocKind[];
+  /** Block new campaigns while the business has overdue commitments. */
+  blockIfOverdue: boolean;
 }
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   sectors: [...SECTORS], locations: [...LOCATIONS], announcement: "",
   commitmentOptions: [...DEFAULT_COMMITMENTS], minReporting: "quarterly", minAccountYears: 2,
   trackingMonths: 24, dueSoonDays: 14, deliveryMonths: 3,
+  minYearsOperating: 1, minGoal: 100000, maxGoal: 50000000, maxGoalToRevenue: 2, maxOpenCampaigns: 2,
+  requiredDocKinds: ["licence", "accounts"], blockIfOverdue: true,
 };
 
 /* ───────────── Commitment tracking (obligations / campaign_updates) ───────────── */

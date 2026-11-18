@@ -32,7 +32,8 @@ export default function ProjectBuilder() {
   const stepKey = STEPS.some(([k]) => k === params.get("step")) ? params.get("step")! : "business";
   const go = (k: string) => { setParams({ step: k }); window.scrollTo?.(0, 0); };
   const editable = c.status === "draft" || c.status === "rejected";
-  const problems = submitProblems(c, db.businesses.find((b) => b.userId === c.businessId), db.projects[c.id], db.financials[c.id], db.settings);
+  const problems = submitProblems(c, db.businesses.find((b) => b.userId === c.businessId), db.projects[c.id], db.financials[c.id], db.settings,
+    { campaigns: db.campaigns, documents: db.documents, obligations: db.obligations });
   const done = (s: string) => !problems.some((p) => p.section === s);
 
   return (
@@ -406,7 +407,12 @@ function ReviewStep({ c, editable, problems, go }: { c: Campaign; editable: bool
   const nav = useNavigate();
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const stepFor: Record<Section, string> = { Basics: "", Business: "business", Accounts: "accounts", Plan: "plan", Commitments: "commitments" };
+  const stepFor: Record<Section, string> = { Eligibility: "", Basics: "", Business: "business", Accounts: "accounts", Plan: "plan", Commitments: "commitments" };
+  // Where to fix an eligibility problem: documents → Accounts step; goal → basics; the rest → company profile on the dashboard.
+  const eligibilityFix = (msg: string) =>
+    /Documents/.test(msg) ? <button type="button" className="text-xs font-semibold text-brand-700" onClick={() => go("accounts")}>Upload →</button>
+    : /Goal/.test(msg) ? <Link to={`/campaigns/${c.id}/edit`} className="text-xs font-semibold text-brand-700">Change goal →</Link>
+    : <Link to="/dashboard" className="text-xs font-semibold text-brand-700">Dashboard →</Link>;
 
   const submit = async () => {
     setBusy(true);
@@ -433,7 +439,7 @@ function ReviewStep({ c, editable, problems, go }: { c: Campaign; editable: bool
             {problems.map((pr, i) => (
               <li key={i} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-sm">
                 <span><span className="badge mr-2 bg-amber-100 text-amber-800">{pr.section}</span>{pr.message}</span>
-                {pr.section === "Basics"
+                {pr.section === "Eligibility" ? eligibilityFix(pr.message) : pr.section === "Basics"
                   ? (pr.message.includes("verified") ? <Link to="/dashboard" className="text-xs font-semibold text-brand-700">Company profile →</Link> : <Link to={`/campaigns/${c.id}/edit`} className="text-xs font-semibold text-brand-700">Fix →</Link>)
                   : <button type="button" className="text-xs font-semibold text-brand-700" onClick={() => go(stepFor[pr.section])}>Fix →</button>}
               </li>

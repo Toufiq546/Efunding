@@ -118,6 +118,14 @@ select pg_temp.check((select declared_at > now() - interval '1 minute'
   and accepted_commitments = (select commitment_options from public.platform_settings) from public.campaign_projects),
   'declaration time and accepted commitments are set by the server');
 select pg_temp.check((select not checked from public.campaign_financials), 'a business cannot mark its own accounts as checked');
+-- Eligibility fixture: founding year and a licence document (accounts were uploaded above).
+select pg_temp.act_as(:B1);
+update public.businesses set founded_year = 2015 where user_id = auth.uid();
+insert into storage.objects (bucket_id, name) select 'campaign-docs', id || '/licence.pdf' from public.campaigns;
+insert into public.campaign_documents (campaign_id, kind, title, path, size_bytes, mime)
+select id, 'licence', 'Trade licence', id || '/licence.pdf', 900, 'application/pdf' from public.campaigns;
+reset role;
+select pg_temp.check((select verification from public.businesses where user_id = :B1) = 'verified', 'editing the founding year keeps verification');
 select id as cid from public.campaigns \gset
 select pg_temp.expect_fail(:B2, format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'campaign-docs', :'cid' || '/x.pdf'), 'row-level security');
 select pg_temp.expect_fail(:B2, $$insert into storage.objects (bucket_id, name) values ('campaign-docs', 'not-a-uuid/x.pdf')$$, 'row-level security');
@@ -158,8 +166,8 @@ select pg_temp.check((select years_reported = 2 and revenue_growth_pct = 25.0 an
   'anon sees the accounts summary');
 reset role;
 select pg_temp.act_as(:I1);
-select pg_temp.check((select count(*) from public.campaign_financials) = 1 and (select count(*) from public.campaign_documents) = 1
-  and (select count(*) from storage.objects) = 1, 'logged-in investor reads accounts and documents of a live campaign');
+select pg_temp.check((select count(*) from public.campaign_financials) = 1 and (select count(*) from public.campaign_documents) = 2
+  and (select count(*) from storage.objects) = 2, 'logged-in investor reads accounts and documents of a live campaign');
 reset role;
 select pg_temp.expect_fail(:B1, $$update public.campaign_projects set story = 'changed after approval'$$, 'NO ROWS');
 select pg_temp.expect_fail(:B1, $$delete from storage.objects$$, 'NO ROWS');
@@ -322,6 +330,29 @@ select public.admin_reset_help_article('getting-started', 'Back to the original'
 select pg_temp.check((select count(*) from public.admin_audit where action like 'help.%') = 4, 'manual edits are logged');
 reset role;
 select pg_temp.check((select count(*) from public.help_articles where slug = 'getting-started') = 0, 'reset removes the admin edit');
+
+-- ───────── Eligibility to raise funds ─────────
+select pg_temp.act_as(:B1);
+insert into public.campaigns (business_id, title, summary, type, sector, location, goal, min_investment, deadline, equity_percent)
+values (auth.uid(), 'Second campaign', 'Tiny goal', 'equity', 'Technology', 'Dhaka', 50, 10, current_date + 30, 5);
+insert into public.campaign_projects (campaign_id, story) select id, 'x' from public.campaigns where title = 'Second campaign';
+select pg_temp.check((select array_to_string(public.campaign_submit_problems(id, goal, type), ' | ') ~ 'goal must be between'
+  and array_to_string(public.campaign_submit_problems(id, goal, type), ' | ') ~ 'type "licence"'
+  and array_to_string(public.campaign_submit_problems(id, goal, type), ' | ') ~ 'overdue commitments'
+  from public.campaigns where title = 'Second campaign'), 'goal range, required documents and overdue commitments are checked');
+reset role;
+select pg_temp.expect_fail(:B1, $$select public.admin_update_eligibility(0, 10, 100, 0, 3, '{}', false)$$, 'Admins only');
+select pg_temp.expect_fail(:A, $$select public.admin_update_eligibility(0, 500, 100, 0, 3, '{}', false)$$, 'not more than the maximum');
+select pg_temp.expect_fail(:A, $$select public.admin_update_eligibility(0, 10, 100, 0, 3, '{passport}', false)$$, 'Unknown document type');
+select pg_temp.act_as(:A);
+select public.admin_update_eligibility(0, 10, 1000, 0, 3, '{}', false);
+reset role;
+select pg_temp.act_as(:B1);
+select pg_temp.check((select array_to_string(public.campaign_submit_problems(id, goal, type), ' | ') !~ 'Eligibility'
+  from public.campaigns where title = 'Second campaign'), 'relaxed rules remove the eligibility problems');
+select pg_temp.expect_fail(:B1, $$update public.campaigns set status = 'pending' where title = 'Second campaign'$$, 'must be verified');  -- its TIN changed earlier, so it's back in review
+reset role;
+select pg_temp.check((select count(*) from public.admin_audit where action = 'settings.eligibility') = 1, 'eligibility changes are logged');
 
 rollback;
 \echo 'ALL TESTS PASSED'

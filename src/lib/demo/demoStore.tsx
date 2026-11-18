@@ -11,9 +11,9 @@ import { demoSeed, type DemoData } from "./seed";
  * enforces in production (verification, admin approval, pledge minimums). Used for the in-chat preview.
  */
 
-// v2: sample data now includes a funded campaign with commitment tracking.
-const KEY = "fundbridge.demo.v2";
-const SESSION = "fundbridge.demo.session.v2";
+// v3: sample data includes a funded campaign (tracking) and sample documents (eligibility).
+const KEY = "fundbridge.demo.v3";
+const SESSION = "fundbridge.demo.session.v3";
 
 function load<T>(key: string, fallback: () => T): T {
   try {
@@ -186,7 +186,8 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
           if (submit && input.deadline <= today()) return "The deadline must be in the future";
           if (submit) {
             const draft = { ...input, id: cid, businessId: uid!, status: "draft", createdAt: now() } as Campaign;
-            const problems = submitProblems(draft, data.businesses.find((b) => b.userId === uid), data.projects[cid], data.financials[cid], data.settings);
+            const problems = submitProblems(draft, data.businesses.find((b) => b.userId === uid), data.projects[cid], data.financials[cid], data.settings,
+              { campaigns: data.campaigns, documents: data.documents, obligations: data.obligations });
             if (problems.length) return `${problems[0].section}: ${problems[0].message}`;
           }
           return null;
@@ -438,6 +439,15 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
         (d) => { d.settings = { ...d.settings, trackingMonths, dueSoonDays, deliveryMonths }; },
         { action: "settings.tracking", targetType: "settings", targetId: "platform",
           detail: `track ${trackingMonths} months, warn ${dueSoonDays} days ahead, rewards due after ${deliveryMonths} months` },
+      );
+    },
+
+    updateEligibility(e) {
+      return adminAct(
+        () => (e.minGoal <= 0 || e.maxGoal < e.minGoal ? "The minimum goal must be above zero and not more than the maximum" : null),
+        (d) => { d.settings = { ...d.settings, ...e }; },
+        { action: "settings.eligibility", targetType: "settings", targetId: "platform",
+          detail: `${e.minYearsOperating} yr operating, goal ${e.minGoal}–${e.maxGoal}, ≤${e.maxGoalToRevenue}× sales, ${e.maxOpenCampaigns} open, docs ${e.requiredDocKinds.join("+")}, overdue ${e.blockIfOverdue ? "blocks" : "allowed"}` },
       );
     },
 

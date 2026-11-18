@@ -66,6 +66,8 @@ export interface Store {
   removeUpdate(id: string, reason: string): Result;
   updateTrackingSettings(trackingMonths: number, dueSoonDays: number, deliveryMonths: number): Result;
 
+  updateEligibility(e: Pick<PlatformSettings, "minYearsOperating" | "minGoal" | "maxGoal" | "maxGoalToRevenue" | "maxOpenCampaigns" | "requiredDocKinds" | "blockIfOverdue">): Result;
+
   /* User manual (admin) */
   saveHelpArticle(a: HelpArticleRow): Result;
   resetHelpArticle(slug: string, reason: string): Result;
@@ -259,6 +261,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             trackingMonths: settings.data.tracking_months ?? DEFAULT_SETTINGS.trackingMonths,
             dueSoonDays: settings.data.due_soon_days ?? DEFAULT_SETTINGS.dueSoonDays,
             deliveryMonths: settings.data.delivery_months ?? DEFAULT_SETTINGS.deliveryMonths,
+            minYearsOperating: settings.data.min_years_operating ?? DEFAULT_SETTINGS.minYearsOperating,
+            minGoal: num(settings.data.min_goal) ?? DEFAULT_SETTINGS.minGoal,
+            maxGoal: num(settings.data.max_goal) ?? DEFAULT_SETTINGS.maxGoal,
+            maxGoalToRevenue: num(settings.data.max_goal_to_revenue) ?? DEFAULT_SETTINGS.maxGoalToRevenue,
+            maxOpenCampaigns: settings.data.max_open_campaigns ?? DEFAULT_SETTINGS.maxOpenCampaigns,
+            requiredDocKinds: settings.data.required_doc_kinds ?? DEFAULT_SETTINGS.requiredDocKinds,
+            blockIfOverdue: settings.data.block_if_overdue ?? DEFAULT_SETTINGS.blockIfOverdue,
           }
         : DEFAULT_SETTINGS,
       projects: Object.fromEntries((projects.data ?? []).map((r) => [r.campaign_id, toProject(r)])),
@@ -476,6 +485,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     updateTrackingSettings(trackingMonths, dueSoonDays, deliveryMonths) {
       return run(() => supabase.rpc("admin_update_tracking_settings", { _tracking_months: trackingMonths, _due_soon_days: dueSoonDays, _delivery_months: deliveryMonths }));
+    },
+
+    updateEligibility(e) {
+      return run(() => supabase.rpc("admin_update_eligibility", {
+        _min_years_operating: e.minYearsOperating, _min_goal: e.minGoal, _max_goal: e.maxGoal, _max_goal_to_revenue: e.maxGoalToRevenue,
+        _max_open_campaigns: e.maxOpenCampaigns, _required_doc_kinds: e.requiredDocKinds, _block_if_overdue: e.blockIfOverdue,
+      }));
     },
 
     saveHelpArticle(a) {

@@ -9,7 +9,7 @@ import { ComplianceSummary, KIND_LABEL, StateBadge, UpdateCard } from "../../com
 import { HelpLink, Markdown } from "../../components/help/Markdown";
 import { AUDIENCE_LABEL, BUILT_IN, fillPlaceholders, mergeManual, type Audience, type HelpArticle, type HelpArticleRow } from "../../lib/manual";
 import type { Lang } from "../../lib/i18n";
-import { REPORTING, type Campaign, type Reporting } from "../../lib/types";
+import { DOC_KINDS, REPORTING, type Campaign, type DocKind, type Reporting } from "../../lib/types";
 import type { AuditEntry, Role } from "../../lib/types";
 
 const REVIEW_SECTIONS = ["General", "Basics", "Business", "Accounts", "Plan", "Commitments"];
@@ -472,6 +472,7 @@ function Settings({ action }: { action: Act }) {
         </section>
       </div>
       <button className="btn-primary" disabled={action.busy}>{action.busy ? "Saving…" : "Save settings"}</button>
+      <EligibilitySettings action={action} />
       <ProjectSettings action={action} />
       <TrackingSettings action={action} />
     </form>
@@ -520,7 +521,8 @@ function ProjectSettings({ action }: { action: Act }) {
 /** Completeness, documents and the accounts check for one campaign's project page. */
 function ProjectStatus({ c, action, compact }: { c: Campaign; action: Act; compact?: boolean }) {
   const { db, checkFinancials } = useStore();
-  const problems = submitProblems(c, db.businesses.find((b) => b.userId === c.businessId), db.projects[c.id], db.financials[c.id], db.settings)
+  const problems = submitProblems(c, db.businesses.find((b) => b.userId === c.businessId), db.projects[c.id], db.financials[c.id], db.settings,
+    { campaigns: db.campaigns, documents: db.documents, obligations: db.obligations })
     .filter((p) => p.section !== "Basics" || !p.message.includes("deadline"));
   const fin = db.financials[c.id];
   const docs = db.documents.filter((d) => d.campaignId === c.id).length;
@@ -561,6 +563,7 @@ const ACTION_LABEL: Record<string, string> = {
   "obligation.reopen": "Reopened commitment",
   "update.remove": "Removed update",
   "settings.tracking": "Updated tracking rules",
+  "settings.eligibility": "Updated eligibility rules",
   "help.save": "Added manual article",
   "help.edit": "Edited manual article",
   "help.hide": "Hid manual article",
@@ -910,7 +913,7 @@ function ArticleForm({ row, isNew, action, close }: { row: HelpArticleRow; isNew
       </div>
       <p className="text-xs text-slate-500">
         Format: blank line for a new paragraph, <code>## </code> for a heading, <code>- </code> for bullets, <code>1. </code> for steps, <code>**bold**</code>.
-        Live values: <code>{"{{minAccountYears}} {{minReporting}} {{commitments}} {{trackingMonths}} {{dueSoonDays}} {{deliveryMonths}}"}</code>.
+        Live values: <code>{"{{minAccountYears}} {{minReporting}} {{commitments}} {{trackingMonths}} {{dueSoonDays}} {{deliveryMonths}} {{minYearsOperating}} {{minGoal}} {{maxGoal}} {{goalToRevenue}} {{maxOpenCampaigns}} {{requiredDocs}} {{overdueRule}}"}</code>.
         If the Bangla text is empty, readers see the English.
       </p>
       <section className="card space-y-3">
@@ -931,5 +934,54 @@ function ArticleForm({ row, isNew, action, close }: { row: HelpArticleRow; isNew
         <button type="button" className="btn-secondary" onClick={close}>Back</button>
       </div>
     </div>
+  );
+}
+
+/** Who may raise funds: operating years, goal range, goal vs sales, open campaigns, documents, overdue commitments. */
+function EligibilitySettings({ action }: { action: Act }) {
+  const { db, updateEligibility } = useStore();
+  const s0 = db.settings;
+  const [e, setE] = useState({
+    minYearsOperating: s0.minYearsOperating, minGoal: s0.minGoal, maxGoal: s0.maxGoal, maxGoalToRevenue: s0.maxGoalToRevenue,
+    maxOpenCampaigns: s0.maxOpenCampaigns, requiredDocKinds: s0.requiredDocKinds, blockIfOverdue: s0.blockIfOverdue,
+  });
+  const num = (id: keyof typeof e, label: string, hint: string, step = 1) => (
+    <div>
+      <label className="label" htmlFor={`el-${id}`}>{label}</label>
+      <input id={`el-${id}`} type="number" min={0} step={step} className="input" value={e[id] as number} onChange={(ev) => setE({ ...e, [id]: Number(ev.target.value) })} />
+      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+    </div>
+  );
+  const toggleDoc = (k: DocKind) => setE({ ...e, requiredDocKinds: e.requiredDocKinds.includes(k) ? e.requiredDocKinds.filter((x) => x !== k) : [...e.requiredDocKinds, k] });
+  return (
+    <section className="card space-y-4 border-t-4 border-t-brand-600">
+      <div>
+        <h2 className="text-lg font-bold">Eligibility to raise funds</h2>
+        <p className="text-sm text-slate-600">A business must meet all of these (and be verified) before it can submit a campaign. Businesses see a checklist on their dashboard; the manual shows the current values.</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {num("minYearsOperating", "Years in operation, at least", "From the founding year in the company profile.")}
+        {num("minGoal", "Smallest goal (৳)", formatMoney(e.minGoal), 1000)}
+        {num("maxGoal", "Largest goal (৳)", formatMoney(e.maxGoal), 1000)}
+        {num("maxGoalToRevenue", "Goal at most × last year's sales", "0 turns this rule off.", 0.5)}
+        {num("maxOpenCampaigns", "Campaigns open or in review at once", "Funded campaigns don't count.")}
+      </div>
+      <fieldset className="space-y-2">
+        <legend className="label">Documents every campaign must upload</legend>
+        <div className="flex flex-wrap gap-2">
+          {DOC_KINDS.map(([k, label]) => (
+            <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-sm ${e.requiredDocKinds.includes(k) ? "border-brand-600 bg-brand-50 text-brand-800" : "border-slate-300"}`}>
+              <input type="checkbox" checked={e.requiredDocKinds.includes(k)} onChange={() => toggleDoc(k)} /> {label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={e.blockIfOverdue} onChange={(ev) => setE({ ...e, blockIfOverdue: ev.target.checked })} />
+        Block new campaigns while the business has overdue commitments on earlier ones
+      </label>
+      <button type="button" className="btn-primary" disabled={action.busy}
+        onClick={() => action.act(() => updateEligibility(e), "Eligibility rules saved.")}>Save eligibility rules</button>
+    </section>
   );
 }

@@ -9,6 +9,9 @@ export type DemoData = Omit<DB, "stats" | "financialSummary"> & { accounts: Demo
 
 export const DEMO_PASSWORD = "demo1234";
 
+/** A tiny placeholder PDF for the demo's sample documents. */
+const SAMPLE_PDF = "data:application/pdf;base64,JVBERi0xLjQKJSVFT0YK";
+
 const people: [string, string, string, Role][] = [
   ["u-admin", "admin@demo.com", "Platform Admin", "admin"],
   ["u-inv1", "investor@demo.com", "Nadia Rahman", "investor"],
@@ -33,7 +36,10 @@ function baseSeed(): DemoData {
     audit: [],
     projects: Object.fromEntries(demoProjects().map((p) => [p.campaignId, p])),
     financials: Object.fromEntries(demoFinancials().map((f) => [f.campaignId, f])),
-    documents: [],
+    documents: ["c-agro", "c-solar", "c-loom", "c-agro2"].flatMap((cid) => [
+      { id: `doc-${cid}-l`, campaignId: cid, kind: "licence" as const, title: "Trade licence", path: `${cid}/trade-licence.pdf`, sizeBytes: 15, mime: "application/pdf", createdAt: ago(12), dataUrl: SAMPLE_PDF },
+      { id: `doc-${cid}-a`, campaignId: cid, kind: "accounts" as const, title: "Financial statements 2025", path: `${cid}/accounts-2025.pdf`, sizeBytes: 15, mime: "application/pdf", createdAt: ago(12), dataUrl: SAMPLE_PDF },
+    ]),
     accounts: people.map(([userId, email]) => ({ userId, email, password: DEMO_PASSWORD })),
     profiles: people.map(([id, email, name], i) => ({ id, email, name, createdAt: ago(60 - i * 5) })),
     roles: people.map(([userId, , , role]) => ({ userId, role })),

@@ -35,6 +35,9 @@ The local backend is throwaway; `npm run local:db` resets it.
   campaign page via `src/components/project/ProjectSections.tsx`. `src/lib/project.ts` `submitProblems()` mirrors the
   database's `campaign_submit_problems()`: change both together. Full accounts and documents are for logged-in users;
   visitors get `campaign_financial_summary`.
+- **Eligibility to raise funds**: rules in `platform_settings` (years operating, goal range, goal ≤ N× last year's sales,
+  campaigns open at once, required document kinds, no overdue commitments), enforced in `campaign_submit_problems()` and
+  mirrored by `eligibilityChecks()` in `src/lib/project.ts` (dashboard checklist, builder review). Change both together.
 - **Commitment tracking** (`obligations`, `campaign_updates`): admin "Mark funded" (`admin_mark_funded`) closes a fully
   funded campaign and generates dated obligations; `src/lib/tracking.ts` `generateObligations()` mirrors it (keep both
   in step). Businesses complete obligations with `post_campaign_update`. Obligations are public; updates are for backers,

@@ -1,5 +1,13 @@
 import type { Lang } from "./i18n";
-import type { PlatformSettings, Reporting } from "./types";
+import type { DocKind, PlatformSettings, Reporting } from "./types";
+
+const DOC_TEXT: Record<DocKind, Record<Lang, string>> = {
+  accounts: { en: "financial statements", bn: "আর্থিক বিবরণী" },
+  bank: { en: "a bank statement", bn: "ব্যাংক স্টেটমেন্ট" },
+  tax: { en: "a tax return", bn: "ট্যাক্স রিটার্ন" },
+  licence: { en: "the trade licence", bn: "ট্রেড লাইসেন্স" },
+  other: { en: "other supporting documents", bn: "অন্যান্য প্রমাণপত্র" },
+};
 
 /**
  * Built-in user manual (English + Bangla). Admins can override any article by slug, hide it or add new ones
@@ -7,7 +15,8 @@ import type { PlatformSettings, Reporting } from "./types";
  *
  * Body format: blank line = new paragraph, "## " heading, "- " bullet, "1. " numbered step, **bold**.
  * Live values from Settings: {{minAccountYears}} {{minReporting}} {{commitments}} {{trackingMonths}}
- * {{dueSoonDays}} {{deliveryMonths}}. When an admin changes a rule, the manual follows.
+ * {{dueSoonDays}} {{deliveryMonths}} {{minYearsOperating}} {{minGoal}} {{maxGoal}} {{goalToRevenue}}
+ * {{maxOpenCampaigns}} {{requiredDocs}} {{overdueRule}}. When an admin changes a rule, the manual follows.
  */
 
 export type Audience = "everyone" | "investor" | "business" | "admin";
@@ -216,6 +225,36 @@ If you later change your company name, trade licence or TIN, your business goes 
     },
   },
   {
+    slug: "business-eligibility", audience: "business", order: 20.5,
+    title: { en: "Who can raise funds (eligibility)", bn: "কে টাকা তুলতে পারবে (যোগ্যতা)" },
+    body: {
+      en: `To submit a campaign, your business must meet **all** of these rules. Your dashboard shows a **Can you raise funds?** checklist with your status for each one.
+
+1. **Verified business:** trade licence and TIN checked by FundBridge.
+2. **Time in operation:** founded at least **{{minYearsOperating}} year(s)** ago (from the founding year in your company profile).
+3. **Funding goal:** between **{{minGoal}}** and **{{maxGoal}}**.
+4. **Goal compared to sales:** {{goalToRevenue}}
+5. **Campaigns at once:** at most **{{maxOpenCampaigns}}** campaign(s) open or in review. Funded campaigns don't count.
+6. **Documents:** each campaign must upload {{requiredDocs}} in its Accounts step.
+7. **Accounts:** results for at least **{{minAccountYears}} past years**.
+8. **Track record:** {{overdueRule}}
+
+The project page's **Review** step lists any rule your campaign doesn't meet yet, with a link to fix it.`,
+      bn: `ক্যাম্পেইন জমা দিতে আপনার ব্যবসাকে এই **সবগুলো** নিয়ম মানতে হবে। ড্যাশবোর্ডে **Can you raise funds?** তালিকায় প্রতিটি নিয়মে আপনার অবস্থা দেখাবে।
+
+1. **যাচাই করা ব্যবসা:** FundBridge ট্রেড লাইসেন্স ও TIN যাচাই করেছে।
+2. **ব্যবসার বয়স:** কমপক্ষে **{{minYearsOperating}} বছর** আগে প্রতিষ্ঠিত (কোম্পানি প্রোফাইলের প্রতিষ্ঠার বছর অনুযায়ী)।
+3. **লক্ষ্যমাত্রা:** **{{minGoal}}** থেকে **{{maxGoal}}**-এর মধ্যে।
+4. **বিক্রির তুলনায় লক্ষ্য:** {{goalToRevenue}}
+5. **একসাথে ক্যাম্পেইন:** একসাথে সর্বোচ্চ **{{maxOpenCampaigns}}টি** ক্যাম্পেইন চালু বা রিভিউতে থাকতে পারে। ফান্ডেড ক্যাম্পেইন গোনা হয় না।
+6. **প্রমাণপত্র:** প্রতিটি ক্যাম্পেইনের Accounts ধাপে {{requiredDocs}} আপলোড করতে হবে।
+7. **হিসাব:** কমপক্ষে **গত {{minAccountYears}} বছরের** হিসাব।
+8. **রেকর্ড:** {{overdueRule}}
+
+প্রজেক্ট পেজের **Review** ধাপে কোন নিয়ম এখনো পূরণ হয়নি তা ঠিক করার লিংকসহ দেখায়।`,
+    },
+  },
+  {
     slug: "business-project-page", audience: "business", order: 21,
     title: { en: "Creating a campaign and its project page", bn: "ক্যাম্পেইন ও প্রজেক্ট পেজ তৈরি" },
     body: {
@@ -341,12 +380,12 @@ The Overview shows a red alert whenever something is overdue.`,
     body: {
       en: `- **Users:** change anyone's role (investor, business or admin). You can't change your own role, so there's always at least one admin.
 - **Pledges** and **Q&A:** cancel a pledge or remove a question, with a reason.
-- **Settings:** site announcement banner, sector and city lists, project-page rules (standard commitments, update frequency, years of accounts) and tracking rules. This manual updates automatically when those rules change.
+- **Settings:** site announcement banner, sector and city lists, **eligibility rules** (years in operation, goal range, goal compared to sales, campaigns at once, required documents, overdue commitments), project-page rules (standard commitments, update frequency, years of accounts) and tracking rules. This manual updates automatically when those rules change.
 - **Manual:** edit any article in English and Bangla, hide it, add new articles, or reset an article to its original text.
 - **Activity log:** every admin action, with who did it, when and why. It can't be edited.`,
       bn: `- **Users:** যে কারও ভূমিকা বদলান (investor, business বা admin)। নিজের ভূমিকা বদলানো যায় না, তাই অন্তত একজন অ্যাডমিন সবসময় থাকেন।
 - **Pledges** ও **Q&A:** কারণ লিখে প্লেজ বাতিল বা প্রশ্ন মুছে ফেলুন।
-- **Settings:** সাইটের ঘোষণা, সেক্টর ও শহরের তালিকা, প্রজেক্ট পেজের নিয়ম (মানক প্রতিশ্রুতি, আপডেটের হার, হিসাবের বছর) এবং ট্র্যাকিংয়ের নিয়ম। এই নিয়ম বদলালে ম্যানুয়ালও নিজে থেকে বদলে যায়।
+- **Settings:** সাইটের ঘোষণা, সেক্টর ও শহরের তালিকা, **যোগ্যতার নিয়ম** (ব্যবসার বয়স, লক্ষ্যমাত্রার সীমা, বিক্রির তুলনায় লক্ষ্য, একসাথে কয়টি ক্যাম্পেইন, প্রয়োজনীয় প্রমাণপত্র, সময় পেরোনো প্রতিশ্রুতি), প্রজেক্ট পেজের নিয়ম (মানক প্রতিশ্রুতি, আপডেটের হার, হিসাবের বছর) এবং ট্র্যাকিংয়ের নিয়ম। এই নিয়ম বদলালে ম্যানুয়ালও নিজে থেকে বদলে যায়।
 - **Manual:** যেকোনো নিবন্ধ ইংরেজি ও বাংলায় সম্পাদনা করুন, লুকিয়ে রাখুন, নতুন নিবন্ধ যোগ করুন বা মূল লেখায় ফিরিয়ে নিন।
 - **Activity log:** প্রতিটি অ্যাডমিন কাজ, কে, কখন ও কেন করেছেন। এটি বদলানো যায় না।`,
     },
@@ -371,6 +410,12 @@ export function mergeManual(rows: HelpArticleRow[]): HelpArticle[] {
 const BN_DIGITS = "০১২৩৪৫৬৭৮৯";
 export const localDigits = (s: string, lang: Lang) => (lang === "bn" ? s.replace(/\d/g, (d) => BN_DIGITS[Number(d)]) : s);
 
+/** Taka in lakh/crore, e.g. ৳1 lakh / ৳৫ কোটি. */
+function taka(v: number, lang: Lang) {
+  const [value, unit] = v >= 1e7 ? [v / 1e7, lang === "bn" ? "কোটি" : "crore"] : [v / 1e5, lang === "bn" ? "লাখ" : "lakh"];
+  return `৳${localDigits(String(+value.toFixed(2)), lang)} ${unit}`;
+}
+
 /** Replaces {{placeholders}} with the platform's current rules, in the reader's language. */
 export function fillPlaceholders(body: string, s: PlatformSettings, lang: Lang) {
   const n = (v: number) => localDigits(String(v), lang);
@@ -380,7 +425,20 @@ export function fillPlaceholders(body: string, s: PlatformSettings, lang: Lang) 
     .replace(/\{\{trackingMonths\}\}/g, n(s.trackingMonths))
     .replace(/\{\{dueSoonDays\}\}/g, n(s.dueSoonDays))
     .replace(/\{\{deliveryMonths\}\}/g, n(s.deliveryMonths))
-    .replace(/\{\{commitments\}\}/g, s.commitmentOptions.map((c) => `- ${c}`).join("\n"));
+    .replace(/\{\{commitments\}\}/g, s.commitmentOptions.map((c) => `- ${c}`).join("\n"))
+    .replace(/\{\{minYearsOperating\}\}/g, n(s.minYearsOperating))
+    .replace(/\{\{minGoal\}\}/g, taka(s.minGoal, lang))
+    .replace(/\{\{maxGoal\}\}/g, taka(s.maxGoal, lang))
+    .replace(/\{\{maxOpenCampaigns\}\}/g, n(s.maxOpenCampaigns))
+    .replace(/\{\{requiredDocs\}\}/g, s.requiredDocKinds.length
+      ? s.requiredDocKinds.map((k) => `**${DOC_TEXT[k][lang]}**`).join(lang === "bn" ? " ও " : " and ")
+      : (lang === "bn" ? "প্রয়োজনীয় প্রমাণপত্র (এখন বাধ্যতামূলক নয়)" : "supporting documents (currently optional)"))
+    .replace(/\{\{goalToRevenue\}\}/g, s.maxGoalToRevenue > 0
+      ? (lang === "bn" ? `লক্ষ্য গত বছরের বিক্রির সর্বোচ্চ **${n(s.maxGoalToRevenue)} গুণ** হতে পারে।` : `the goal can be at most **${s.maxGoalToRevenue}×** last year's sales.`)
+      : (lang === "bn" ? "এখন কোনো সীমা নেই।" : "no limit at the moment."))
+    .replace(/\{\{overdueRule\}\}/g, s.blockIfOverdue
+      ? (lang === "bn" ? "আগের ক্যাম্পেইনে কোনো প্রতিশ্রুতির সময় পেরিয়ে গেলে নতুন ক্যাম্পেইন জমা দেওয়া যাবে না।" : "you can't submit a new campaign while a commitment on an earlier one is overdue.")
+      : (lang === "bn" ? "এখন সময় পেরোনো প্রতিশ্রুতি নতুন ক্যাম্পেইন আটকায় না।" : "overdue commitments don't block new campaigns at the moment."));
 }
 
 /** Which audience a reader sees first. */

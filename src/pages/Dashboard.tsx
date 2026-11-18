@@ -9,6 +9,7 @@ import ControlPanel from "./admin/ControlPanel";
 import { HelpLink } from "../components/help/Markdown";
 import { ComplianceSummary, KIND_LABEL, PostUpdateForm, StateBadge, UpdateCard } from "../components/tracking/Tracking";
 import { obligationState } from "../lib/tracking";
+import { eligibilityChecks } from "../lib/project";
 import type { Campaign } from "../lib/types";
 
 export default function Dashboard() {
@@ -189,6 +190,8 @@ function BusinessDashboard() {
         <Stat label="Unanswered questions" value={unanswered.length} />
       </div>
 
+      <EligibilityCard />
+
       {verification !== "verified" && (
         <div className={`rounded-xl p-4 text-sm ${verification === "rejected" ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-800"}`}>
           {verification === "unverified" && "Complete your company profile and submit it for verification before you can raise funds."}
@@ -354,6 +357,38 @@ function FromInvestments() {
       {updates.length === 0 ? <p className="text-sm text-slate-500">No updates yet.</p> : (
         <div className="space-y-3">{updates.map((u) => <UpdateCard key={u.id} u={u} campaign={db.campaigns.find((c) => c.id === u.campaignId)} />)}</div>
       )}
+    </section>
+  );
+}
+
+/** Business: can this business raise funds right now? Campaign-specific rules are listed for information. */
+function EligibilityCard() {
+  const { db, user } = useStore();
+  const biz = db.businesses.find((b) => b.userId === user?.id);
+  const checks = eligibilityChecks(biz, undefined, undefined, db.settings, { campaigns: db.campaigns, documents: db.documents, obligations: db.obligations });
+  const blocking = checks.filter((c) => c.ok === false);
+  return (
+    <section className={`card space-y-3 ${blocking.length ? "border-amber-300" : "border-green-300"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-xl font-bold">Can you raise funds?</h2>
+        <HelpLink article="business-eligibility">Eligibility rules</HelpLink>
+      </div>
+      <p className={`rounded-lg p-3 text-sm font-medium ${blocking.length ? "bg-amber-50 text-amber-900" : "bg-green-50 text-green-800"}`}>
+        {blocking.length
+          ? `Not yet: ${blocking.length} rule${blocking.length > 1 ? "s" : ""} below still need${blocking.length > 1 ? "" : "s"} attention.`
+          : "Yes. Your business meets the general rules. Each campaign is also checked for its goal and documents."}
+      </p>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {checks.map((c) => (
+          <li key={c.key} className="flex gap-2 text-sm">
+            <span aria-hidden className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+              c.ok === true ? "bg-green-600 text-white" : c.ok === false ? "bg-amber-500 text-white" : "bg-slate-200 text-slate-600"}`}>
+              {c.ok === true ? "✓" : c.ok === false ? "!" : "i"}
+            </span>
+            <span><b className="font-medium">{c.label}</b><span className="block text-xs text-slate-500">{c.detail}</span></span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
