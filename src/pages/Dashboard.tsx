@@ -6,6 +6,7 @@ import { CAMPAIGN_TYPES, RISKS, type BusinessProfile, type InvestorProfile } fro
 import { TYPE_LABEL, effectiveStatus, formatDate, formatMoney, raisedFor, withCurrent } from "../lib/format";
 import { rankCampaigns } from "../lib/matching";
 import ControlPanel from "./admin/ControlPanel";
+import { HelpLink } from "../components/help/Markdown";
 import { ComplianceSummary, KIND_LABEL, PostUpdateForm, StateBadge, UpdateCard } from "../components/tracking/Tracking";
 import { obligationState } from "../lib/tracking";
 import type { Campaign } from "../lib/types";
@@ -80,7 +81,7 @@ function InvestorDashboard() {
 
       <form onSubmit={save} className="card space-y-5">
         <div>
-          <h2 className="text-xl font-bold">Investment preferences</h2>
+          <h2 className="flex flex-wrap items-center gap-3 text-xl font-bold">Investment preferences <HelpLink article="investor-preferences">How matching works</HelpLink></h2>
           <p className="text-sm text-slate-500">These drive your match scores. Leave a group empty to stay open to everything in it.</p>
         </div>
         <div><label className="label">Sectors</label><Chips options={db.settings.sectors} value={pref.sectors} onChange={(sectors) => setPref({ ...pref, sectors })} /></div>
@@ -197,7 +198,7 @@ function BusinessDashboard() {
 
       <section className="card space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">Company profile</h2>
+          <h2 className="flex flex-wrap items-center gap-3 text-xl font-bold">Company profile <HelpLink article="business-verification">Verification guide</HelpLink></h2>
           {!editing && <button className="btn-secondary" onClick={() => setEditing(true)}>Edit</button>}
         </div>
         <ErrorNote>{err}</ErrorNote>
@@ -289,7 +290,7 @@ function CommitmentsToKeep({ campaigns }: { campaigns: Campaign[] }) {
   return (
     <section className="card space-y-5">
       <div>
-        <h2 className="text-xl font-bold">Commitments to keep</h2>
+        <h2 className="flex flex-wrap items-center gap-3 text-xl font-bold">Commitments to keep <HelpLink article="business-after-funding">How to post updates</HelpLink></h2>
         <p className="text-sm text-slate-600">Investors and FundBridge see whether each promise is kept on time. Post an update to complete a commitment.</p>
       </div>
       {campaigns.map((c) => {

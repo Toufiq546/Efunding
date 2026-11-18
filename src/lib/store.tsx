@@ -3,6 +3,7 @@ import type { PostgrestError, Session } from "@supabase/supabase-js";
 import { isConfigured, supabase } from "./supabase";
 import { DEFAULT_MIME_ERROR, docPath, validateDocument } from "./documents";
 import { DEFAULT_SETTINGS } from "./types";
+import type { HelpArticleRow } from "./manual";
 import type {
   BusinessProfile, Campaign, CampaignDocument, CampaignUpdate, DB, DocKind, Financials, FinancialSummary, InvestorProfile,
   Obligation, PlatformSettings, Pledge, Project, Question, Reporting, Role, User,
@@ -64,6 +65,10 @@ export interface Store {
   setObligation(id: string, action: "reschedule" | "waive" | "reopen", dueOn: string | null, reason: string): Result;
   removeUpdate(id: string, reason: string): Result;
   updateTrackingSettings(trackingMonths: number, dueSoonDays: number, deliveryMonths: number): Result;
+
+  /* User manual (admin) */
+  saveHelpArticle(a: HelpArticleRow): Result;
+  resetHelpArticle(slug: string, reason: string): Result;
   setRole(userId: string, role: Role): Result;
   closeCampaign(id: string, reason: string): Result;
   adminCancelPledge(id: string, reason: string): Result;
@@ -74,7 +79,7 @@ export interface Store {
 const EMPTY: DB = {
   profiles: [], roles: [], stats: {}, businesses: [], investors: [], campaigns: [], pledges: [], questions: [],
   settings: DEFAULT_SETTINGS, audit: [], projects: {}, financials: {}, financialSummary: {}, documents: [],
-  obligations: [], updates: [],
+  obligations: [], updates: [], helpArticles: [],
 };
 
 export const StoreContext = createContext<Store | null>(null);
@@ -204,7 +209,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     if (!isConfigured) return;
-    const [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents, obligations, updates] = await Promise.all([
+    const [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents, obligations, updates, help] = await Promise.all([
       supabase.from("campaigns").select("*").order("created_at", { ascending: false }),
       supabase.from("campaign_stats").select("*"),
       supabase.from("business_public").select("*"),
@@ -225,8 +230,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase.from("obligations").select("*").order("due_on"),
       // Backers, the business and admins only (RLS).
       uid ? supabase.from("campaign_updates").select("*").order("created_at", { ascending: false }) : null,
+      supabase.from("help_articles").select("*"),
     ]);
-    const firstError = [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents, obligations, updates]
+    const firstError = [campaigns, stats, publicBiz, ownBiz, pledges, questions, prefs, profiles, roles, settings, audit, projects, financials, summary, documents, obligations, updates, help]
       .find((r) => r?.error)?.error;
     if (firstError) console.error("Load failed:", firstError.message);
 
@@ -261,6 +267,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       documents: (documents?.data ?? []).map(toDocument),
       obligations: (obligations.data ?? []).map(toObligation),
       updates: (updates?.data ?? []).map(toUpdate),
+      helpArticles: (help.data ?? []).map((r) => ({
+        slug: r.slug, audience: r.audience, order: r.sort_order, titleEn: r.title_en, titleBn: r.title_bn,
+        bodyEn: r.body_en, bodyBn: r.body_bn, hidden: r.hidden, updatedAt: r.updated_at,
+      })),
       audit: (audit?.data ?? []).map((r) => ({
         id: String(r.id), adminId: r.admin_id, action: r.action, targetType: r.target_type,
         targetId: r.target_id, detail: r.detail, createdAt: r.created_at,
@@ -466,6 +476,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     updateTrackingSettings(trackingMonths, dueSoonDays, deliveryMonths) {
       return run(() => supabase.rpc("admin_update_tracking_settings", { _tracking_months: trackingMonths, _due_soon_days: dueSoonDays, _delivery_months: deliveryMonths }));
+    },
+
+    saveHelpArticle(a) {
+      return run(() => supabase.rpc("admin_save_help_article", {
+        _slug: a.slug, _audience: a.audience, _sort_order: a.order, _title_en: a.titleEn, _title_bn: a.titleBn,
+        _body_en: a.bodyEn, _body_bn: a.bodyBn, _hidden: a.hidden,
+      }));
+    },
+    resetHelpArticle(slug, reason) {
+      return run(() => supabase.rpc("admin_reset_help_article", { _slug: slug, _reason: reason }));
     },
 
     updateSettings(s) {

@@ -34,6 +34,7 @@ export default function Layout() {
           </Link>
           <nav className="flex flex-1 flex-wrap items-center gap-1">
             <NavLink to="/campaigns" className={navCls}>Browse campaigns</NavLink>
+            <NavLink to="/help" className={navCls}>Help · সাহায্য</NavLink>
             {user && <NavLink to="/dashboard" className={navCls}>{user.role === "admin" ? "Control panel" : "Dashboard"}</NavLink>}
           </nav>
           {user ? (

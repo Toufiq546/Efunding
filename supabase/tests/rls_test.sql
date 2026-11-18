@@ -303,5 +303,25 @@ reset role;
 select pg_temp.check((select count(*) from public.obligations where status = 'done') = 0, 'removing an update reopens its commitment');
 select pg_temp.check((select status = 'waived' and note = 'Milestone replaced' from public.obligations where kind = 'milestone'), 'admin waived a commitment with a reason');
 
+-- ───────── User manual (admin edits) ─────────
+select pg_temp.expect_fail(:B1, $$select public.admin_save_help_article('getting-started', 'everyone', 1, 'Hacked', '', 'x', '', false)$$, 'Admins only');
+select pg_temp.expect_fail(null, $$insert into public.help_articles (slug, audience, title_en, body_en) values ('x1', 'everyone', 'x', 'y')$$, 'permission denied');
+select pg_temp.act_as(:A);
+select public.admin_save_help_article('getting-started', 'everyone', 1, 'Welcome', 'স্বাগতম', 'Edited text', 'সম্পাদিত লেখা', false);
+select public.admin_save_help_article('admin-secret-steps', 'admin', 5, 'Admin only', '', 'Internal steps', '', false);
+select public.admin_save_help_article('old-article', 'investor', 9, 'Old', '', 'Hidden now', '', true);
+reset role;
+select pg_temp.act_as(null);
+select pg_temp.check((select count(*) from public.help_articles) = 1 and (select title_bn from public.help_articles) = 'স্বাগতম',
+  'visitors read published articles, not admin-only or hidden ones');
+reset role;
+select pg_temp.act_as(:A);
+select pg_temp.check((select count(*) from public.help_articles) = 3, 'admins read every article');
+select pg_temp.expect_fail(:A, $$select public.admin_reset_help_article('getting-started', '')$$, 'reason is required');
+select public.admin_reset_help_article('getting-started', 'Back to the original');
+select pg_temp.check((select count(*) from public.admin_audit where action like 'help.%') = 4, 'manual edits are logged');
+reset role;
+select pg_temp.check((select count(*) from public.help_articles where slug = 'getting-started') = 0, 'reset removes the admin edit');
+
 rollback;
 \echo 'ALL TESTS PASSED'

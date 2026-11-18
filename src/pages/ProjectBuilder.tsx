@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { Empty, ErrorNote, StatusBadge, TypeBadge } from "../components/ui";
+import { HelpLink } from "../components/help/Markdown";
 import { ListEditor, TextList } from "../components/project/ListEditor";
 import { formatDate, formatMoney } from "../lib/format";
 import { formatBytes } from "../lib/documents";
@@ -46,6 +47,7 @@ export default function ProjectBuilder() {
         <p className="text-sm text-slate-600">
           Build the page investors read before they pledge. <Link to={`/campaigns/${c.id}/edit`} className="font-semibold text-brand-700 hover:underline">Edit basics (goal, terms, deadline)</Link>
           {" · "}<Link to={`/campaigns/${c.id}`} className="font-semibold text-brand-700 hover:underline">Preview page</Link>
+          {" · "}<HelpLink article={stepKey === "commitments" ? "business-commitments" : "business-project-page"}>How to fill this in</HelpLink>
         </p>
         {c.status === "rejected" && c.rejectionReason && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">Admin feedback: {c.rejectionReason}</p>}
         {!editable && (

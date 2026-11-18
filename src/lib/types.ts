@@ -310,6 +310,8 @@ export interface DB {
   obligations: Obligation[];
   /** Only the updates the viewer may read. */
   updates: CampaignUpdate[];
+  /** Admin edits to the user manual (merged with the built-in articles in src/lib/manual.ts). */
+  helpArticles: import("./manual").HelpArticleRow[];
   businesses: BusinessProfile[];
   investors: InvestorProfile[];
   campaigns: Campaign[];

@@ -6,6 +6,9 @@ import { effectiveStatus, formatDate, formatMoney, raisedFor } from "../../lib/f
 import { allowedReporting, REPORTING_LABEL, submitProblems } from "../../lib/project";
 import { compliance, obligationState, today } from "../../lib/tracking";
 import { ComplianceSummary, KIND_LABEL, StateBadge, UpdateCard } from "../../components/tracking/Tracking";
+import { HelpLink, Markdown } from "../../components/help/Markdown";
+import { AUDIENCE_LABEL, BUILT_IN, fillPlaceholders, mergeManual, type Audience, type HelpArticle, type HelpArticleRow } from "../../lib/manual";
+import type { Lang } from "../../lib/i18n";
 import { REPORTING, type Campaign, type Reporting } from "../../lib/types";
 import type { AuditEntry, Role } from "../../lib/types";
 
@@ -25,6 +28,7 @@ const TABS = [
   ["tracking", "Tracking"],
   ["questions", "Q&A"],
   ["settings", "Settings"],
+  ["manual", "Manual"],
   ["activity", "Activity log"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
@@ -76,6 +80,9 @@ export default function ControlPanel() {
         ))}
       </nav>
 
+      <div className="flex justify-end">
+        <HelpLink article={tab === "tracking" ? "admin-funding-and-tracking" : tab === "settings" || tab === "manual" || tab === "users" || tab === "activity" ? "admin-settings-and-manual" : "admin-reviewing"}>Admin guide</HelpLink>
+      </div>
       <ErrorNote>{action.err}</ErrorNote>
       {action.ok && <p className="rounded-lg bg-brand-50 p-3 text-sm text-brand-700" role="status">{action.ok}</p>}
 
@@ -87,6 +94,7 @@ export default function ControlPanel() {
       {tab === "tracking" && <Tracking action={action} />}
       {tab === "questions" && <Questions action={action} />}
       {tab === "settings" && <Settings action={action} />}
+      {tab === "manual" && <ManualEditor action={action} />}
       {tab === "activity" && <Activity />}
     </div>
   );
@@ -553,6 +561,10 @@ const ACTION_LABEL: Record<string, string> = {
   "obligation.reopen": "Reopened commitment",
   "update.remove": "Removed update",
   "settings.tracking": "Updated tracking rules",
+  "help.save": "Added manual article",
+  "help.edit": "Edited manual article",
+  "help.hide": "Hid manual article",
+  "help.reset": "Reset manual article",
 };
 
 function useTargetName() {
@@ -567,6 +579,7 @@ function useTargetName() {
         return o ? `${o.title} (${db.campaigns.find((c) => c.id === o.campaignId)?.title ?? "a campaign"})` : "a commitment";
       }
       case "update": return "a progress update";
+      case "help": return mergeManual(db.helpArticles).find((h) => h.slug === a.targetId)?.title.en ?? `manual article "${a.targetId}"`;
       case "pledge": {
         const p = db.pledges.find((x) => x.id === a.targetId);
         return p ? `${formatMoney(p.amount)} by ${db.profiles.find((x) => x.id === p.investorId)?.name ?? "an investor"}` : "a pledge";
@@ -790,5 +803,133 @@ function TrackingSettings({ action }: { action: Act }) {
       <button type="button" className="btn-primary" disabled={action.busy}
         onClick={() => action.act(() => updateTrackingSettings(months, soon, delivery), "Tracking rules saved.")}>Save tracking rules</button>
     </section>
+  );
+}
+
+/* ───────────── User manual ───────────── */
+
+const toRow = (a: HelpArticle): HelpArticleRow => ({
+  slug: a.slug, audience: a.audience, order: a.order, titleEn: a.title.en, titleBn: a.title.bn, bodyEn: a.body.en, bodyBn: a.body.bn, hidden: !!a.hidden,
+});
+
+function ManualEditor({ action }: { action: Act }) {
+  const { db, resetHelpArticle } = useStore();
+  const articles = mergeManual(db.helpArticles);
+  const [editing, setEditing] = useState<HelpArticleRow | null>(null);
+  const [isNew, setIsNew] = useState(false);
+
+  if (editing) return <ArticleForm row={editing} isNew={isNew} action={action} close={() => setEditing(null)} />;
+  const badge = (a: HelpArticle) =>
+    a.source === "custom" ? <span className="badge bg-violet-100 text-violet-800">Added by admin</span>
+    : a.source === "edited" ? <span className="badge bg-amber-100 text-amber-800">Edited</span>
+    : <span className="badge bg-slate-100 text-slate-600">Original</span>;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-600">
+          The manual everyone sees under <b>Help</b>. Edit any article in English and Bangla, hide it, or add your own.
+          Values like <code>{"{{minAccountYears}}"}</code> fill in from Settings automatically.
+        </p>
+        <button type="button" className="btn-primary shrink-0" onClick={() => {
+          setIsNew(true);
+          setEditing({ slug: "", audience: "everyone", order: 50, titleEn: "", titleBn: "", bodyEn: "", bodyBn: "", hidden: false });
+        }}>+ New article</button>
+      </div>
+      {(["everyone", "investor", "business", "admin"] as Audience[]).map((aud) => (
+        <section key={aud} className="space-y-2">
+          <h2 className="text-lg font-bold">{AUDIENCE_LABEL[aud].en} <span className="font-normal text-slate-500">· {AUDIENCE_LABEL[aud].bn}</span></h2>
+          <Table head={["Article", "Status", ""]} empty="No articles for this group.">
+            {articles.filter((a) => a.audience === aud).map((a) => (
+              <tr key={a.slug} className="border-t border-slate-100 align-top">
+                <td className="px-3 py-3"><p className="font-semibold">{a.title.en}</p><p className="text-xs text-slate-500">{a.title.bn} · /help?article={a.slug}</p></td>
+                <td className="px-3 py-3"><div className="flex flex-wrap gap-1">{badge(a)}{a.hidden && <span className="badge bg-slate-200 text-slate-700">Hidden</span>}</div></td>
+                <td className="px-3 py-3">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button type="button" className="btn-secondary" onClick={() => { setIsNew(false); setEditing(toRow(a)); }}>Edit</button>
+                    {a.source !== "built-in" && (
+                      <ReasonAction label={a.source === "custom" ? "Delete" : "Reset to original"} submitLabel={a.source === "custom" ? "Delete article" : "Reset article"}
+                        reasonLabel="Reason (kept in the activity log)" disabled={action.busy}
+                        onSubmit={(r) => action.act(() => resetHelpArticle(a.slug, r), a.source === "custom" ? "Article deleted." : "Article restored to its original text.")} />
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ArticleForm({ row, isNew, action, close }: { row: HelpArticleRow; isNew: boolean; action: Act; close: () => void }) {
+  const { db, saveHelpArticle } = useStore();
+  const [r, setR] = useState(row);
+  const [preview, setPreview] = useState<Lang>("en");
+  const original = BUILT_IN.find((b) => b.slug === row.slug);
+  const set = (k: keyof HelpArticleRow, v: string | number | boolean) => setR({ ...r, [k]: v });
+  const save = async () => {
+    await action.act(() => saveHelpArticle(r), `Saved "${r.titleEn}". Readers see it right away.`);
+  };
+  return (
+    <div className="space-y-4">
+      <button type="button" className="text-sm text-brand-700" onClick={close}>← All articles</button>
+      <h2 className="text-xl font-bold">{isNew ? "New article" : `Edit: ${row.titleEn}`}</h2>
+      {original && <p className="text-xs text-slate-500">This is a built-in article. Saving keeps your version; “Reset to original” brings the original back.</p>}
+      <div className="card grid gap-4 sm:grid-cols-4">
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="h-slug">Address (lowercase letters, numbers, dashes)</label>
+          <input id="h-slug" className="input" value={r.slug} disabled={!isNew} onChange={(e) => set("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="e.g. investor-tax-tips" />
+        </div>
+        <div>
+          <label className="label" htmlFor="h-aud">Shown to</label>
+          <select id="h-aud" className="input" value={r.audience} onChange={(e) => set("audience", e.target.value)}>
+            {(["everyone", "investor", "business", "admin"] as Audience[]).map((a) => <option key={a} value={a}>{AUDIENCE_LABEL[a].en}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label" htmlFor="h-order">Order</label>
+          <input id="h-order" type="number" className="input" value={r.order} onChange={(e) => set("order", Number(e.target.value))} />
+        </div>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {(["en", "bn"] as Lang[]).map((l) => (
+          <div key={l} className="card space-y-3" lang={l}>
+            <h3 className="font-semibold">{l === "en" ? "English" : "বাংলা (Bangla)"}</h3>
+            <div>
+              <label className="label" htmlFor={`h-title-${l}`}>{l === "en" ? "Title" : "শিরোনাম"}</label>
+              <input id={`h-title-${l}`} className="input" value={l === "en" ? r.titleEn : r.titleBn} onChange={(e) => set(l === "en" ? "titleEn" : "titleBn", e.target.value)} />
+            </div>
+            <div>
+              <label className="label" htmlFor={`h-body-${l}`}>{l === "en" ? "Text" : "লেখা"}</label>
+              <textarea id={`h-body-${l}`} className="input min-h-72 font-mono text-xs" value={l === "en" ? r.bodyEn : r.bodyBn} onChange={(e) => set(l === "en" ? "bodyEn" : "bodyBn", e.target.value)} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500">
+        Format: blank line for a new paragraph, <code>## </code> for a heading, <code>- </code> for bullets, <code>1. </code> for steps, <code>**bold**</code>.
+        Live values: <code>{"{{minAccountYears}} {{minReporting}} {{commitments}} {{trackingMonths}} {{dueSoonDays}} {{deliveryMonths}}"}</code>.
+        If the Bangla text is empty, readers see the English.
+      </p>
+      <section className="card space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold">Preview</h3>
+          <div className="inline-flex rounded-lg border border-slate-300 p-0.5 text-xs font-semibold">
+            {(["en", "bn"] as Lang[]).map((l) => (
+              <button key={l} type="button" onClick={() => setPreview(l)} className={`rounded-md px-2.5 py-1 ${preview === l ? "bg-brand-600 text-white" : "text-slate-600"}`}>{l === "en" ? "English" : "বাংলা"}</button>
+            ))}
+          </div>
+        </div>
+        <h2 className="text-xl font-bold">{(preview === "bn" && r.titleBn) || r.titleEn || "Untitled"}</h2>
+        <Markdown source={fillPlaceholders((preview === "bn" && r.bodyBn) || r.bodyEn, db.settings, preview)} />
+      </section>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.hidden} onChange={(e) => set("hidden", e.target.checked)} /> Hide from readers</label>
+        <button type="button" className="btn-primary" disabled={action.busy || !r.titleEn.trim() || !r.slug} onClick={save}>Save article</button>
+        <button type="button" className="btn-secondary" onClick={close}>Back</button>
+      </div>
+    </div>
   );
 }

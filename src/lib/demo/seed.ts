@@ -28,6 +28,7 @@ function baseSeed(): DemoData {
   return {
     obligations: [],
     updates: [],
+    helpArticles: [],
     settings: { ...DEFAULT_SETTINGS },
     audit: [],
     projects: Object.fromEntries(demoProjects().map((p) => [p.campaignId, p])),

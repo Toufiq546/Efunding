@@ -47,6 +47,7 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       documents: saved.documents ?? [],
       obligations: saved.obligations ?? seed.obligations,
       updates: saved.updates ?? seed.updates,
+      helpArticles: saved.helpArticles ?? [],
     } as DemoData;
   });
   const [uid, setUid] = useState<string | null>(() => load<string | null>(SESSION, () => null));
@@ -85,7 +86,12 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       || data.pledges.some((p) => p.campaignId === u.campaignId && p.investorId === uid && p.status === "active"));
   }, [data, uid]);
 
-  const db: DB = useMemo(() => ({ ...data, stats, financialSummary, updates: visibleUpdates }), [data, stats, financialSummary, visibleUpdates]);
+  // Like the help_articles policy: admin-only and hidden edits are for admins.
+  const isAdminViewer = data.roles.some((r) => r.userId === uid && r.role === "admin");
+  const helpArticles = useMemo(() => data.helpArticles.filter((h) => isAdminViewer || (!h.hidden && h.audience !== "admin")), [data, isAdminViewer]);
+
+  const db: DB = useMemo(() => ({ ...data, stats, financialSummary, updates: visibleUpdates, helpArticles }),
+    [data, stats, financialSummary, visibleUpdates, helpArticles]);
   const role = data.roles.find((r) => r.userId === uid)?.role;
   const me = data.profiles.find((p) => p.id === uid);
   const user = uid && role && me ? { id: uid, name: me.name, email: me.email, role } : null;
@@ -432,6 +438,24 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
         (d) => { d.settings = { ...d.settings, trackingMonths, dueSoonDays, deliveryMonths }; },
         { action: "settings.tracking", targetType: "settings", targetId: "platform",
           detail: `track ${trackingMonths} months, warn ${dueSoonDays} days ahead, rewards due after ${deliveryMonths} months` },
+      );
+    },
+
+    saveHelpArticle(a) {
+      const existed = data.helpArticles.some((h) => h.slug === a.slug);
+      return adminAct(
+        () => (!/^[a-z0-9-]{2,60}$/.test(a.slug) ? "Use 2–60 lowercase letters, numbers and dashes for the article address."
+          : !a.titleEn.trim() ? "The English title is required." : null),
+        (d) => { d.helpArticles = [...d.helpArticles.filter((h) => h.slug !== a.slug), { ...a, updatedAt: now() }]; },
+        { action: a.hidden ? "help.hide" : existed ? "help.edit" : "help.save", targetType: "help", targetId: a.slug, detail: a.titleEn },
+      );
+    },
+
+    resetHelpArticle(slug, reason) {
+      return adminAct(
+        (d) => (!reason.trim() ? "A reason is required" : d.helpArticles.some((h) => h.slug === slug) ? null : "This article has no admin changes to reset"),
+        (d) => { d.helpArticles = d.helpArticles.filter((h) => h.slug !== slug); },
+        { action: "help.reset", targetType: "help", targetId: slug, detail: reason },
       );
     },
 
